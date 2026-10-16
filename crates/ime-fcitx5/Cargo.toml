@@ -1,0 +1,13 @@
+[package]
+name = "ime-fcitx5"
+version = "0.1.0"
+edition = "2021"
+description = "X11 IM framework integration: XIM server, key grab, commit-to-focus, cursor tracking"
+license = "MIT"
+
+[dependencies]
+ime-engine = { path = "../ime-engine" }
+x11-dl = "2"
+
+[lib]
+crate-type = ["lib"]

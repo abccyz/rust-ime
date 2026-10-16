@@ -1,0 +1,12 @@
+[package]
+name = "ime-engine"
+version = "0.1.0"
+edition = "2021"
+description = "Pure-Rust pinyin IME engine (candidate generation), ported in spirit from wave-ime's libkeyboard.so"
+license = "MIT"
+
+[dependencies]
+# Deliberately minimal / offline-buildable: no network, no C++ deps.
+# utf8 handling is std; candidate scoring is a hand-rolled trie + Viterbi-lite.
+
+[dev-dependencies]

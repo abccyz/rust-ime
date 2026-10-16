@@ -1,0 +1,9 @@
+/target
+/dist
+**/*.so
+**/*.dll
+**/*.dylib
+.DS_Store
+*.swp
+*.swo
+*~

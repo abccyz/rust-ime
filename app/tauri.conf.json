@@ -1,0 +1,36 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "rust-ime",
+  "version": "0.1.0",
+  "identifier": "com.doubao.ime.linux",
+  "build": {
+    "beforeDevCommand": "",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "豆包输入法",
+        "width": 520,
+        "height": 96,
+        "resizable": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "decorations": false,
+        "transparent": true,
+        "shadow": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["appimage", "deb"],
+    "icon": []
+  }
+}
