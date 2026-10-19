@@ -164,6 +164,12 @@
         render(event.payload);
       });
 
+      // Wheel over the strip moves the highlight; click / Enter commits it.
+      window.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        invoke('move_selection', { delta: e.deltaY > 0 ? 1 : -1 }).catch(() => {});
+      }, { passive: false });
+
       // Apply appearance settings (theme + font size) sent by the backend.
       function applySettings(s) {
         const root = document.documentElement;

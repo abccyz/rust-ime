@@ -121,11 +121,19 @@ impl ImeServer {
         max_candidates: usize,
         prediction: bool,
         learn: bool,
+        fuzzy: bool,
+        chinese_punctuation: bool,
     ) {
         let mut e = self.engine.lock().unwrap();
         e.set_max_candidates(max_candidates);
         e.set_prediction_enabled(prediction);
         e.set_learn_enabled(learn);
+        e.set_fuzzy(fuzzy);
+        e.set_chinese_punctuation(chinese_punctuation);
+    }
+
+    pub fn chinese_punctuation_enabled(&self) -> bool {
+        self.engine.lock().unwrap().chinese_punctuation()
     }
 
     /// (system words, user words).

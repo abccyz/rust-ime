@@ -88,6 +88,10 @@ struct Settings {
     font_size: u32,
     /// How to switch Chinese/English: "ctrl_space" or "shift".
     toggle_key: String,
+    /// Convert ASCII punctuation to full-width forms while typing Chinese.
+    chinese_punctuation: bool,
+    /// Match zh/z, ch/c, sh/s, ang/an, eng/en, ing/in and initial n/l.
+    fuzzy_pinyin: bool,
 }
 
 impl Default for Settings {
@@ -100,6 +104,8 @@ impl Default for Settings {
             theme: "dark".to_string(),
             font_size: 16,
             toggle_key: "ctrl_space".to_string(),
+            chinese_punctuation: true,
+            fuzzy_pinyin: false,
         }
     }
 }
@@ -141,10 +147,46 @@ fn store_settings(s: &Settings) {
     }
 }
 
+/// Settings line understood by the fcitx5 addon ("G" command).
+fn engine_settings_line(s: &Settings) -> String {
+    format!(
+        "G{},{},{},{},{}\n",
+        s.candidate_count,
+        u8::from(s.prediction),
+        u8::from(s.learn),
+        u8::from(s.fuzzy_pinyin),
+        u8::from(s.chinese_punctuation)
+    )
+}
+
+/// Keep the socket blocking and bound writes with a timeout: O_NONBLOCK on
+/// one cloned fd also affects the shared read side, which would make the IPC
+/// reader see EAGAIN and drop the connection after the first update.
+fn configure_ui_stream(stream: &std::os::unix::net::UnixStream) {
+    let _ = stream.set_nonblocking(false);
+    let _ = stream.set_write_timeout(Some(std::time::Duration::from_millis(100)));
+}
+
+fn send_engine_settings(stream: &mut std::os::unix::net::UnixStream, s: &Settings) {
+    use std::io::Write;
+    let _ = stream.write_all(engine_settings_line(s).as_bytes());
+}
+
 /// Apply settings to the engine, autostart and candidate window.
 fn apply_settings(app: &AppHandle, server: &ImeServer, s: &Settings) {
-    server.apply_settings(s.candidate_count, s.prediction, s.learn);
+    server.apply_settings(
+        s.candidate_count,
+        s.prediction,
+        s.learn,
+        s.fuzzy_pinyin,
+        s.chinese_punctuation,
+    );
     set_autostart(s.autostart);
+    if let Ok(mut slot) = UI_STREAM.lock() {
+        if let Some(stream) = slot.as_mut() {
+            send_engine_settings(stream, s);
+        }
+    }
     if let Some(win) = app.get_webview_window("main") {
         let _ = win.emit("settings", s.clone());
     }
@@ -449,7 +491,7 @@ static UI_STREAM: std::sync::Mutex<Option<std::os::unix::net::UnixStream>> =
 /// a backlog (which made the candidate window look frozen).
 static LATEST_UI: std::sync::Mutex<Option<UiEvent>> = std::sync::Mutex::new(None);
 static UI_DIRTY: AtomicBool = AtomicBool::new(false);
-type RenderKey = (String, Vec<String>, i32, i32);
+type RenderKey = (String, Vec<String>, i32, i32, i32);
 /// Last rendered content, to skip redundant window operations.
 static LAST_RENDERED: std::sync::Mutex<Option<RenderKey>> = std::sync::Mutex::new(None);
 
@@ -457,6 +499,8 @@ static LAST_RENDERED: std::sync::Mutex<Option<RenderKey>> = std::sync::Mutex::ne
 struct UiEvent {
     preedit: String,
     candidates: Vec<String>,
+    #[serde(default)]
+    selected: i32,
     x: i32,
     y: i32,
     h: i32,
@@ -469,7 +513,13 @@ fn handle_ui_event(app: &AppHandle, ev: UiEvent) {
     let active = !ev.preedit.is_empty() || !ev.candidates.is_empty();
 
     // Skip redundant work when nothing visible changed.
-    let key = (ev.preedit.clone(), ev.candidates.clone(), ev.x, ev.y);
+    let key = (
+        ev.preedit.clone(),
+        ev.candidates.clone(),
+        ev.selected,
+        ev.x,
+        ev.y,
+    );
     {
         let Ok(mut last) = LAST_RENDERED.lock() else {
             return;
@@ -506,7 +556,7 @@ fn handle_ui_event(app: &AppHandle, ev: UiEvent) {
             serde_json::json!({
                 "text": t,
                 "pinyin": "",
-                "selected": i == 0,
+                "selected": i == ev.selected as usize,
             })
         })
         .collect();
@@ -562,8 +612,19 @@ fn start_ui_server(app: AppHandle) {
             for stream in listener.incoming() {
                 let Ok(stream) = stream else { continue };
                 if let Ok(clone) = stream.try_clone() {
+                    configure_ui_stream(&clone);
                     if let Ok(mut slot) = UI_STREAM.lock() {
                         *slot = Some(clone);
+                    }
+                }
+                // A fresh addon connection has the compiled-in defaults;
+                // push the user's settings before the first keystroke.
+                {
+                    let settings = app.state::<AppState>().settings.lock().unwrap().clone();
+                    if let Ok(mut slot) = UI_STREAM.lock() {
+                        if let Some(st) = slot.as_mut() {
+                            send_engine_settings(st, &settings);
+                        }
                     }
                 }
                 std::thread::spawn(move || {
@@ -584,6 +645,7 @@ fn start_ui_server(app: AppHandle) {
                         *slot = Some(UiEvent {
                             preedit: String::new(),
                             candidates: Vec::new(),
+                            selected: 0,
                             x: 0,
                             y: 0,
                             h: 0,
@@ -869,9 +931,8 @@ fn commit_candidate(app: AppHandle, state: State<AppState>, idx: usize) -> Resul
     // fcitx5 mode: forward the selection to the addon.
     if let Ok(mut slot) = UI_STREAM.lock() {
         if let Some(stream) = slot.as_mut() {
-            let _ = stream.set_nonblocking(true);
             use std::io::Write;
-            let _ = stream.write(format!("S{idx}\n").as_bytes());
+            let _ = stream.write_all(format!("S{idx}\n").as_bytes());
             return Ok(String::new());
         }
     }
@@ -892,6 +953,26 @@ fn commit_candidate(app: AppHandle, state: State<AppState>, idx: usize) -> Resul
         }
     }
     Ok(committed)
+}
+
+/// Move the candidate highlight (arrow keys / mouse wheel).
+#[tauri::command]
+fn move_selection(app: AppHandle, state: State<AppState>, delta: i32) -> Result<(), String> {
+    if let Ok(mut slot) = UI_STREAM.lock() {
+        if let Some(stream) = slot.as_mut() {
+            use std::io::Write;
+            let _ = stream.write_all(format!("M{delta}\n").as_bytes());
+            return Ok(());
+        }
+    }
+    let key = if delta < 0 {
+        ime_engine::Key::Left
+    } else {
+        ime_engine::Key::Right
+    };
+    let _ = state.server.on_key(key);
+    emit_preedit(&app, &state.server);
+    Ok(())
 }
 
 #[tauri::command]
@@ -1042,6 +1123,7 @@ fn handle_grabbed_key(app: &AppHandle, gk: &GrabbedKey) {
         return;
     }
 
+    let punct_on = state.server.chinese_punctuation_enabled();
     let should_consume = matches!(
         key,
         ime_engine::Key::Letter(_)
@@ -1052,7 +1134,7 @@ fn handle_grabbed_key(app: &AppHandle, gk: &GrabbedKey) {
             | ime_engine::Key::Escape
             | ime_engine::Key::Left
             | ime_engine::Key::Right
-    );
+    ) || (punct_on && matches!(key, ime_engine::Key::Punct(_)));
     if !should_consume {
         return;
     }
@@ -1066,6 +1148,9 @@ fn handle_grabbed_key(app: &AppHandle, gk: &GrabbedKey) {
     if !suppress_enabled() {
         match key {
             ime_engine::Key::Letter(_) | ime_engine::Key::Digit(_) => {
+                LEAKED_CHARS.fetch_add(1, Ordering::SeqCst);
+            }
+            ime_engine::Key::Punct(_) if punct_on => {
                 LEAKED_CHARS.fetch_add(1, Ordering::SeqCst);
             }
             ime_engine::Key::Backspace => {
@@ -1336,6 +1421,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             feed_key,
             commit_candidate,
+            move_selection,
             select_candidate,
             reset_engine,
             get_settings,

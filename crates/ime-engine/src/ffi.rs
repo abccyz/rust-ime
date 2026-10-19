@@ -30,6 +30,7 @@ pub const KEY_ESCAPE: i32 = 5;
 pub const KEY_LEFT: i32 = 6;
 pub const KEY_RIGHT: i32 = 7;
 pub const KEY_OTHER: i32 = 8;
+pub const KEY_PUNCT: i32 = 9;
 
 fn map_key(kind: i32, cp: u32) -> Key {
     match kind {
@@ -44,6 +45,7 @@ fn map_key(kind: i32, cp: u32) -> Key {
         KEY_ESCAPE => Key::Escape,
         KEY_LEFT => Key::Left,
         KEY_RIGHT => Key::Right,
+        KEY_PUNCT => char::from_u32(cp).map_or(Key::Other, Key::Punct),
         _ => Key::Other,
     }
 }
@@ -107,6 +109,52 @@ pub unsafe extern "C" fn rust_ime_key(h: *mut RustIme, kind: i32, cp: u32) -> i3
         }
     }
     i32::from(handled)
+}
+
+/// Apply runtime settings. Each flag is 1/0.
+///
+/// # Safety
+/// `h` must be a valid handle.
+#[no_mangle]
+pub unsafe extern "C" fn rust_ime_configure(
+    h: *mut RustIme,
+    max_candidates: i32,
+    prediction: i32,
+    learn: i32,
+    fuzzy: i32,
+    chinese_punctuation: i32,
+) {
+    let Some(ime) = h.as_ref() else { return };
+    let mut engine = ime.engine.lock().unwrap();
+    engine.set_max_candidates(max_candidates.max(1) as usize);
+    engine.set_prediction_enabled(prediction != 0);
+    engine.set_learn_enabled(learn != 0);
+    engine.set_fuzzy(fuzzy != 0);
+    engine.set_chinese_punctuation(chinese_punctuation != 0);
+}
+
+/// Current candidate selection index.
+///
+/// # Safety
+/// `h` must be a valid handle.
+#[no_mangle]
+pub unsafe extern "C" fn rust_ime_selected(h: *mut RustIme) -> i32 {
+    let Some(ime) = h.as_ref() else { return 0 };
+    ime.engine.lock().unwrap().selected() as i32
+}
+
+/// Move the candidate selection by `delta`. Returns 1 if it changed.
+///
+/// # Safety
+/// `h` must be a valid handle.
+#[no_mangle]
+pub unsafe extern "C" fn rust_ime_move_selection(h: *mut RustIme, delta: i32) -> i32 {
+    let Some(ime) = h.as_ref() else { return 0 };
+    let events = {
+        let mut engine = ime.engine.lock().unwrap();
+        engine.move_selection(delta as isize)
+    };
+    i32::from(events.iter().any(|e| matches!(e, EngineEvent::Candidates(_))))
 }
 
 /// Whether a preedit is active.

@@ -14,6 +14,15 @@ BIN="$ROOT/target/release/rust-ime-app"
 STAGE="$ROOT/target/deb-root"
 OUT="$ROOT/target/rust-ime_${VER}_${ARCH}.deb"
 
+"$ROOT/scripts/sync-ui.sh"
+
+# The addon is embedded into the binary, so refresh it when its source moved.
+if [[ ! -f "$ROOT/app/addons/librustime.so" ||
+      "$ROOT/crates/fcitx5-addon/src/rustime.cpp" -nt "$ROOT/app/addons/librustime.so" ]]; then
+    echo "==> building fcitx5 addon"
+    "$ROOT/scripts/build-addon.sh"
+fi
+
 if [[ "${1:-}" == "--build" || ! -x "$BIN" ]]; then
     echo "==> building release binary"
     (cd "$ROOT" && cargo build --release -p rust-ime-app)

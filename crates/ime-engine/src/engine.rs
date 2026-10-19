@@ -32,9 +32,12 @@ pub enum Key {
     Escape,
     /// Digit 1..=9 for candidate selection.
     Digit(u8),
-    /// Left / Right arrow to move the cursor within the preedit.
+    /// Left / Right arrow to move the candidate selection.
     Left,
     Right,
+    /// An ASCII punctuation key; converted to its full-width form when
+    /// Chinese punctuation is enabled.
+    Punct(char),
     /// An unhandled / non-letter key. The engine treats these as "commit any
     /// preedit and pass the key through".
     Other,
@@ -93,6 +96,7 @@ pub struct Engine {
     max_candidates: usize,
     prediction_enabled: bool,
     learn_enabled: bool,
+    chinese_punctuation: bool,
 }
 
 /// Maximum candidates shown per page (upper bound for the setting).
@@ -124,6 +128,7 @@ impl Engine {
             max_candidates: MAX_CANDIDATES,
             prediction_enabled: true,
             learn_enabled: true,
+            chinese_punctuation: true,
         }
     }
 
@@ -155,6 +160,24 @@ impl Engine {
 
     pub fn learn_enabled(&self) -> bool {
         self.learn_enabled
+    }
+
+    /// Enable/disable zh/z, ch/c, sh/s, nasal-final and initial n/l matching.
+    pub fn set_fuzzy(&mut self, on: bool) {
+        self.candidates.set_fuzzy(on);
+    }
+
+    pub fn fuzzy(&self) -> bool {
+        self.candidates.fuzzy()
+    }
+
+    /// Convert ASCII punctuation to full-width forms while typing Chinese.
+    pub fn set_chinese_punctuation(&mut self, on: bool) {
+        self.chinese_punctuation = on;
+    }
+
+    pub fn chinese_punctuation(&self) -> bool {
+        self.chinese_punctuation
     }
 
     /// (system words, user words).
@@ -313,7 +336,26 @@ impl Engine {
                     vec![EngineEvent::Noop]
                 }
             }
-            Key::Left | Key::Right => vec![EngineEvent::Noop],
+            Key::Left | Key::Right => {
+                let delta = if matches!(key, Key::Left) { -1 } else { 1 };
+                self.move_selection(delta)
+            }
+            Key::Punct(c) => {
+                if !self.chinese_punctuation {
+                    return vec![EngineEvent::Noop];
+                }
+                let Some(punct) = fullwidth_punct(c) else {
+                    return vec![EngineEvent::Noop];
+                };
+                let mut ev = Vec::new();
+                if !self.buffer.is_empty() {
+                    ev.extend(self.finish(false));
+                }
+                // The sentence ended: do not chain predictions from here.
+                self.last_committed = None;
+                ev.push(EngineEvent::Commit(punct.to_string()));
+                ev
+            }
             Key::Other => {
                 // Any other key commits the current preedit (first candidate
                 // or raw buffer) and lets the key pass through.
@@ -414,6 +456,21 @@ impl Engine {
         vec![EngineEvent::Clear]
     }
 
+    /// Move the candidate selection by `delta`, wrapping around.
+    pub fn move_selection(&mut self, delta: isize) -> Vec<EngineEvent> {
+        let n = self.state().candidates.len();
+        if n == 0 {
+            return vec![EngineEvent::Noop];
+        }
+        let cur = self.selected.min(n - 1) as isize;
+        self.selected = (cur + delta).rem_euclid(n as isize) as usize;
+        vec![EngineEvent::Candidates(self.state().candidates)]
+    }
+
+    pub fn selected(&self) -> usize {
+        self.selected
+    }
+
     /// Whether the engine has an active preedit.
     pub fn is_active(&self) -> bool {
         !self.buffer.is_empty()
@@ -428,6 +485,44 @@ impl Engine {
         }
         userdict::reinforce(self.candidates.user_dictionary(), pinyin, word, 1.0);
     }
+}
+
+/// Map ASCII punctuation to the full-width form used while typing Chinese.
+fn fullwidth_punct(c: char) -> Option<&'static str> {
+    Some(match c {
+        ',' => "，",
+        '.' => "。",
+        '?' => "？",
+        '!' => "！",
+        ':' => "：",
+        ';' => "；",
+        '\'' => "’",
+        '"' => "”",
+        '(' => "（",
+        ')' => "）",
+        '[' => "【",
+        ']' => "】",
+        '<' => "《",
+        '>' => "》",
+        '\\' | '/' => "、",
+        '@' => "＠",
+        '#' => "＃",
+        '$' => "￥",
+        '%' => "％",
+        '^' => "……",
+        '&' => "＆",
+        '*' => "＊",
+        '-' => "－",
+        '_' => "——",
+        '=' => "＝",
+        '+' => "＋",
+        '~' => "～",
+        '`' => "·",
+        '{' => "「",
+        '}' => "」",
+        '|' => "｜",
+        _ => return None,
+    })
 }
 
 #[cfg(test)]
@@ -484,6 +579,67 @@ mod tests {
         assert!(ev
             .iter()
             .any(|e| matches!(e, EngineEvent::Commit(t) if t == &top)));
+    }
+
+    #[test]
+    fn punctuates_after_conversion() {
+        let mut e = Engine::new();
+        for c in "nihao".chars() {
+            e.feed_key(Key::Letter(c));
+        }
+        let ev = e.feed_key(Key::Punct(','));
+        let commits: Vec<&str> = ev
+            .iter()
+            .filter_map(|x| match x {
+                EngineEvent::Commit(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(commits, vec!["你好", "，"]);
+        assert!(!e.is_active());
+        assert!(e.state().candidates.is_empty());
+    }
+
+    #[test]
+    fn punctuation_without_preedit() {
+        let mut e = Engine::new();
+        let ev = e.feed_key(Key::Punct('?'));
+        assert!(ev.iter().any(|x| matches!(x, EngineEvent::Commit(t) if t == "？")));
+    }
+
+    #[test]
+    fn punctuation_can_be_disabled() {
+        let mut e = Engine::new();
+        e.set_chinese_punctuation(false);
+        assert_eq!(e.feed_key(Key::Punct('.')), vec![EngineEvent::Noop]);
+    }
+
+    #[test]
+    fn arrows_move_candidate_selection() {
+        let mut e = Engine::new();
+        for c in "shi".chars() {
+            e.feed_key(Key::Letter(c));
+        }
+        assert_eq!(e.selected(), 0);
+        e.feed_key(Key::Right);
+        assert_eq!(e.selected(), 1);
+        e.feed_key(Key::Left);
+        assert_eq!(e.selected(), 0);
+    }
+
+    #[test]
+    fn fuzzy_setting_reaches_conversion() {
+        let mut e = Engine::new();
+        e.set_fuzzy(true);
+        assert!(e.fuzzy());
+        for c in "zongguo".chars() {
+            e.feed_key(Key::Letter(c));
+        }
+        assert!(
+            e.state().candidates.iter().any(|c| c.text == "中国"),
+            "fuzzy input should find 中国: {:?}",
+            e.state().candidates.iter().map(|c| &c.text).collect::<Vec<_>>()
+        );
     }
 
     #[test]

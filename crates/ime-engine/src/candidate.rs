@@ -49,6 +49,9 @@ struct Node {
 #[derive(Debug, Default)]
 pub struct Dictionary {
     root: Node,
+    /// Same entries keyed by the dialect-folded spelling (see
+    /// [`pinyin::fuzzy_key`]); only used while fuzzy matching is enabled.
+    fuzzy_root: Node,
     /// Per-word log-frequency (higher = more common). Used as the base score.
     freq: BTreeMap<String, f64>,
     total: usize,
@@ -71,6 +74,14 @@ impl Dictionary {
             node = node.children.entry(ch).or_default();
         }
         node.words.insert(word.to_string(), logfreq);
+
+        let folded = pinyin::fuzzy_key(&pinyin);
+        let mut node = &mut self.fuzzy_root;
+        for ch in folded.chars() {
+            node = node.children.entry(ch).or_default();
+        }
+        node.words.insert(word.to_string(), logfreq);
+
         self.freq.insert(word.to_string(), logfreq);
         self.total += 1;
     }
@@ -89,13 +100,33 @@ impl Dictionary {
         self.freq.iter()
     }
 
-    /// The highest-frequency word whose pinyin is exactly `pinyin`.
-    pub fn exact_best(&self, pinyin: &str) -> Option<(String, f64)> {
-        let mut cur = &self.root;
-        for ch in pinyin.chars() {
+    fn node_for(&self, pinyin: &str, fuzzy: bool) -> Option<&Node> {
+        let key = if fuzzy {
+            pinyin::fuzzy_key(pinyin)
+        } else {
+            pinyin.to_string()
+        };
+        let mut cur = if fuzzy {
+            &self.fuzzy_root
+        } else {
+            &self.root
+        };
+        for ch in key.chars() {
             cur = cur.children.get(&ch)?;
         }
-        cur.words
+        Some(cur)
+    }
+
+    /// The highest-frequency word whose pinyin is exactly `pinyin`.
+    pub fn exact_best(&self, pinyin: &str) -> Option<(String, f64)> {
+        self.exact_best_with(pinyin, false)
+    }
+
+    /// Like [`Self::exact_best`], optionally folding dialect-sensitive
+    /// spellings (zh/z, ch/c, sh/s, ang/an, eng/en, ing/in, initial n/l).
+    pub fn exact_best_with(&self, pinyin: &str, fuzzy: bool) -> Option<(String, f64)> {
+        self.node_for(pinyin, fuzzy)?
+            .words
             .iter()
             .max_by(|a, b| a.1.total_cmp(b.1))
             .map(|(w, f)| (w.clone(), *f))
@@ -103,16 +134,16 @@ impl Dictionary {
 
     /// All words whose pinyin starts with `prefix`, with their base score.
     pub fn prefix_lookup(&self, prefix: &str) -> Vec<(String, String, f64)> {
-        let prefix = prefix.to_string();
+        self.prefix_lookup_with(prefix, false)
+    }
+
+    /// Like [`Self::prefix_lookup`] with optional fuzzy folding.
+    pub fn prefix_lookup_with(&self, prefix: &str, fuzzy: bool) -> Vec<(String, String, f64)> {
         let mut out: Vec<(String, String, f64)> = Vec::new();
-        let mut cur = &self.root;
-        for ch in prefix.chars() {
-            match cur.children.get(&ch) {
-                Some(n) => cur = n,
-                None => return out,
-            }
-        }
-        self.collect(cur, &prefix, &mut out);
+        let Some(node) = self.node_for(prefix, fuzzy) else {
+            return out;
+        };
+        self.collect(node, prefix, &mut out);
         out
     }
 
@@ -136,6 +167,8 @@ pub struct CandidateEngine {
     /// Passthrough flag: when the buffer is not valid pinyin, the raw buffer
     /// itself becomes a candidate so the user can still commit it.
     allow_passthrough: bool,
+    /// Match zh/z, ch/c, sh/s, ang/an, eng/en, ing/in and initial n/l.
+    fuzzy: bool,
 }
 
 impl Default for CandidateEngine {
@@ -150,7 +183,16 @@ impl CandidateEngine {
             sys: Dictionary::new(),
             user: Dictionary::new(),
             allow_passthrough: true,
+            fuzzy: false,
         }
+    }
+
+    pub fn set_fuzzy(&mut self, on: bool) {
+        self.fuzzy = on;
+    }
+
+    pub fn fuzzy(&self) -> bool {
+        self.fuzzy
     }
 
     pub fn system_dictionary(&mut self) -> &mut Dictionary {
@@ -205,8 +247,8 @@ impl CandidateEngine {
                 let chunk = &b[i..i + len];
                 let hit = self
                     .sys
-                    .exact_best(chunk)
-                    .or_else(|| self.user.exact_best(chunk));
+                    .exact_best_with(chunk, self.fuzzy)
+                    .or_else(|| self.user.exact_best_with(chunk, self.fuzzy));
                 let (word, add) = match hit {
                     Some((w, f)) => (w, f),
                     None => {
@@ -308,14 +350,14 @@ impl CandidateEngine {
         // (e.g. "nihao"), not the buffer, so the front end can show the full
         // pinyin under the candidate.
         let mut acc: BTreeMap<String, f64> = BTreeMap::new();
-        for (w, p, f) in self.sys.prefix_lookup(&buffer) {
+        for (w, p, f) in self.sys.prefix_lookup_with(&buffer, self.fuzzy) {
             let prev = acc.entry(w).or_insert(f64::NEG_INFINITY);
             if *prev < f {
                 *prev = f;
             }
             let _ = p; // p kept for the candidate's pinyin field if needed
         }
-        for (w, p, f) in self.user.prefix_lookup(&buffer) {
+        for (w, p, f) in self.user.prefix_lookup_with(&buffer, self.fuzzy) {
             // user words beat system words on ties: add a small boost.
             let prev = acc.entry(w).or_insert(f64::NEG_INFINITY);
             if *prev < f + 1.0 {
@@ -331,7 +373,7 @@ impl CandidateEngine {
         // full string but the trie only reached it via a different split).
         if let Some(segs) = pinyin::primary_segmentation(&buffer) {
             let joined = segs.join("");
-            for (w, p, f) in self.sys.prefix_lookup(&joined) {
+            for (w, p, f) in self.sys.prefix_lookup_with(&joined, self.fuzzy) {
                 if p == joined {
                     let prev = acc.entry(w).or_insert(f64::NEG_INFINITY);
                     if *prev < f {
@@ -657,6 +699,30 @@ mod tests {
             c[0].text.contains("你好"),
             "expected a sentence candidate starting with 你好, got {:?}",
             c.iter().map(|x| &x.text).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn fuzzy_matching_folds_dialect_pairs() {
+        let mut e = CandidateEngine::new();
+        e.system_dictionary().insert("zhongguo", "中国", 6.0);
+        e.system_dictionary().insert("shijie", "世界", 6.0);
+        assert!(!e.candidates("zongguo", 10).iter().any(|c| c.text == "中国"));
+        e.set_fuzzy(true);
+        assert!(
+            e.candidates("zongguo", 10).iter().any(|c| c.text == "中国"),
+            "zongguo should match zhongguo with fuzzy on"
+        );
+        assert!(
+            e.candidates("sijie", 10).iter().any(|c| c.text == "世界"),
+            "sijie should match shijie with fuzzy on"
+        );
+        assert_eq!(
+            e.candidates("zongguo", 10)
+                .iter()
+                .find(|c| c.text == "中国")
+                .map(|c| c.score),
+            Some(6.0)
         );
     }
 

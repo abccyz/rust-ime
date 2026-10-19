@@ -18,6 +18,13 @@ pub fn keysym_to_key(keysym: u32) -> Option<Key> {
         let d = (keysym - 0x30) as u8;
         return Some(Key::Digit(d));
     }
+    // ASCII punctuation keysyms equal their ASCII code.
+    if (0x21..=0x7e).contains(&keysym) {
+        let ch = keysym as u8 as char;
+        if !ch.is_ascii_alphanumeric() {
+            return Some(Key::Punct(ch));
+        }
+    }
     // Special keys (from X11/keysymdef.h)
     match keysym {
         0xff08 => Some(Key::Backspace), // XK_BackSpace

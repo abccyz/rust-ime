@@ -16,8 +16,10 @@
 #include <fcitx-utils/event.h>
 #include <fcitx-utils/keysym.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
@@ -44,6 +46,10 @@ int rust_ime_candidate(RustIme *h, int idx, char *buf, int cap);
 int rust_ime_commit_candidate(RustIme *h, int idx);
 int rust_ime_take_commit(RustIme *h, char *buf, int cap);
 void rust_ime_reset(RustIme *h);
+void rust_ime_configure(RustIme *h, int max_candidates, int prediction,
+                        int learn, int fuzzy, int chinese_punctuation);
+int rust_ime_selected(RustIme *h);
+int rust_ime_move_selection(RustIme *h, int delta);
 }
 
 namespace {
@@ -56,6 +62,46 @@ constexpr int kKeySpace = 4;
 constexpr int kKeyEscape = 5;
 constexpr int kKeyLeft = 6;
 constexpr int kKeyRight = 7;
+constexpr int kKeyPunct = 9;
+
+/// ASCII punctuation keysyms → ASCII code point.
+bool punctKeySym(fcitx::KeySym sym, uint32_t &cp) {
+    switch (sym) {
+    case FcitxKey_comma: cp = ','; return true;
+    case FcitxKey_period: cp = '.'; return true;
+    case FcitxKey_question: cp = '?'; return true;
+    case FcitxKey_exclam: cp = '!'; return true;
+    case FcitxKey_colon: cp = ':'; return true;
+    case FcitxKey_semicolon: cp = ';'; return true;
+    case FcitxKey_apostrophe: cp = '\''; return true;
+    case FcitxKey_quotedbl: cp = '"'; return true;
+    case FcitxKey_parenleft: cp = '('; return true;
+    case FcitxKey_parenright: cp = ')'; return true;
+    case FcitxKey_bracketleft: cp = '['; return true;
+    case FcitxKey_bracketright: cp = ']'; return true;
+    case FcitxKey_less: cp = '<'; return true;
+    case FcitxKey_greater: cp = '>'; return true;
+    case FcitxKey_backslash: cp = '\\'; return true;
+    case FcitxKey_slash: cp = '/'; return true;
+    case FcitxKey_at: cp = '@'; return true;
+    case FcitxKey_numbersign: cp = '#'; return true;
+    case FcitxKey_dollar: cp = '$'; return true;
+    case FcitxKey_percent: cp = '%'; return true;
+    case FcitxKey_asciicircum: cp = '^'; return true;
+    case FcitxKey_ampersand: cp = '&'; return true;
+    case FcitxKey_asterisk: cp = '*'; return true;
+    case FcitxKey_minus: cp = '-'; return true;
+    case FcitxKey_underscore: cp = '_'; return true;
+    case FcitxKey_equal: cp = '='; return true;
+    case FcitxKey_plus: cp = '+'; return true;
+    case FcitxKey_asciitilde: cp = '~'; return true;
+    case FcitxKey_grave: cp = '`'; return true;
+    case FcitxKey_braceleft: cp = '{'; return true;
+    case FcitxKey_braceright: cp = '}'; return true;
+    case FcitxKey_bar: cp = '|'; return true;
+    default: return false;
+    }
+}
 
 std::string jsonEscape(const std::string &s) {
     std::string o;
@@ -136,6 +182,14 @@ public:
             return;
         }
 
+        // Leave every Ctrl/Alt/Super shortcut to the application.
+        const auto states = keyEvent.key().states();
+        if (states.test(fcitx::KeyState::Ctrl) ||
+            states.test(fcitx::KeyState::Alt) ||
+            states.test(fcitx::KeyState::Super)) {
+            return;
+        }
+
         const fcitx::KeySym sym = keyEvent.key().sym();
         int kind = -1;
         uint32_t cp = 0;
@@ -158,6 +212,8 @@ public:
             kind = kKeyLeft;
         } else if (sym == FcitxKey_Right) {
             kind = kKeyRight;
+        } else if (punctKeySym(sym, cp)) {
+            kind = kKeyPunct;
         }
 
         if (kind < 0) {
@@ -181,8 +237,41 @@ private:
             return it->second;
         }
         RustIme *h = rust_ime_new();
+        applyTo(h);
         engines_.emplace(ic, h);
         return h;
+    }
+
+    /// Push the current settings into one engine handle.
+    void applyTo(RustIme *h) {
+        rust_ime_configure(h, maxCandidates_, prediction_, learn_, fuzzy_,
+                           punct_);
+    }
+
+    /// Settings pushed by the app (candidate count, prediction, learn,
+    /// fuzzy pinyin, Chinese punctuation).
+    void applySettings(int candidates, int prediction, int learn, int fuzzy,
+                       int punct) {
+        maxCandidates_ = std::clamp(candidates, 1, 10);
+        prediction_ = prediction != 0;
+        learn_ = learn != 0;
+        fuzzy_ = fuzzy != 0;
+        punct_ = punct != 0;
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (auto &[ic, h] : engines_) {
+            (void)ic;
+            applyTo(h);
+        }
+    }
+
+    void moveSelection(int delta) {
+        if (!lastIc_ || delta == 0) {
+            return;
+        }
+        auto *h = handleFor(lastIc_);
+        if (rust_ime_move_selection(h, delta)) {
+            updateUI(lastIc_);
+        }
     }
 
     void flushCommits(fcitx::InputContext *ic) {
@@ -271,6 +360,14 @@ private:
             if (line.size() >= 2 && line[0] == 'S') {
                 int idx = std::atoi(line.c_str() + 1);
                 selectCandidate(idx);
+            } else if (line.size() >= 2 && line[0] == 'M') {
+                moveSelection(std::atoi(line.c_str() + 1));
+            } else if (line.size() >= 2 && line[0] == 'G') {
+                int c = 10, p = 1, l = 1, f = 0, z = 1;
+                if (std::sscanf(line.c_str() + 1, "%d,%d,%d,%d,%d", &c, &p,
+                                &l, &f, &z) == 5) {
+                    applySettings(c, p, l, f, z);
+                }
             }
         }
     }
@@ -326,7 +423,8 @@ private:
                 }
                 line += '"' + jsonEscape(cands[i]) + '"';
             }
-            line += "],\"x\":" + std::to_string(r.left()) +
+            line += "],\"selected\":" + std::to_string(rust_ime_selected(h)) +
+                    ",\"x\":" + std::to_string(r.left()) +
                     ",\"y\":" + std::to_string(r.top()) +
                     ",\"w\":" + std::to_string(r.width()) +
                     ",\"h\":" + std::to_string(r.height()) + "}\n";
@@ -360,6 +458,11 @@ private:
     std::unique_ptr<fcitx::EventSourceIO> ioEvent_;
     fcitx::InputContext *lastIc_ = nullptr;
     std::vector<std::string> lastCands_;
+    int maxCandidates_ = 10;
+    bool prediction_ = true;
+    bool learn_ = true;
+    bool fuzzy_ = false;
+    bool punct_ = true;
 };
 
 class RustImeEngineFactory : public fcitx::AddonFactory {

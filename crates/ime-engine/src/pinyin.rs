@@ -70,6 +70,24 @@ pub fn is_syllable(s: &str) -> bool {
     syllable_set().contains(s)
 }
 
+/// Fold dialect-sensitive spellings onto one canonical form so both the
+/// dictionary and the query match under the same rules:
+///
+/// * zh/z, ch/c, sh/s (retroflex vs. flat)
+/// * ang/an, eng/en, ing/in (front vs. back nasal)
+/// * a word-initial n/l
+pub fn fuzzy_key(s: &str) -> String {
+    let mut out = s.replace("zh", "z").replace("ch", "c").replace("sh", "s");
+    out = out
+        .replace("ang", "an")
+        .replace("eng", "en")
+        .replace("ing", "in");
+    if out.starts_with('n') {
+        out.replace_range(0..1, "l");
+    }
+    out
+}
+
 /// All valid ways to segment `input` into pinyin syllables. Each result is a
 /// `Vec<String>` of syllables whose concatenation equals `input`. Longer-
 /// syllable segmentations are listed first.

@@ -500,16 +500,16 @@
       </section>
 
       <section class="panel">
-        <div class="panel-head"><h2>标点与模糊音</h2><span class="panel-meta">即将支持</span></div>
-        <article class="lrow" data-search="中文标点"><div class="lrow-t"><div class="lrow-l">中文标点</div><div class="lrow-h">输入逗号句号时自动使用全角</div></div>
-          <div class="lrow-c"><span class="switch" aria-disabled="true"></span></div></article>
-        <article class="lrow" data-search="模糊音 zh ch"><div class="lrow-t"><div class="lrow-l">模糊音 zh / ch</div><div class="lrow-h">兼容方言发音</div></div>
-          <div class="lrow-c"><span class="switch" aria-disabled="true"></span></div></article>
+        <div class="panel-head"><h2>标点与模糊音</h2><span class="panel-meta">立即生效</span></div>
+        <article class="lrow" data-search="中文标点 全角"><div class="lrow-t"><div class="lrow-l">中文标点</div><div class="lrow-h">输入逗号句号时自动使用全角，如 ， 。 ！ ？</div></div>
+          <div class="lrow-c"><span class="switch on" id="inputPunct" role="switch" tabindex="0"></span></div></article>
+        <article class="lrow" data-search="模糊音 zh ch sh ang eng ing n l"><div class="lrow-t"><div class="lrow-l">模糊音</div><div class="lrow-h">zh/z、ch/c、sh/s、ang/an、eng/en、ing/in、首字 n/l</div></div>
+          <div class="lrow-c"><span class="switch" id="inputFuzzy" role="switch" tabindex="0"></span></div></article>
       </section>
 
       <section class="panel">
-        <div class="panel-head"><h2>云输入</h2><span class="panel-meta">即将支持</span></div>
-        <article class="lrow" data-search="云输入"><div class="lrow-t"><div class="lrow-l">云输入</div><div class="lrow-h">联网时补充热词与生僻词</div></div>
+        <div class="panel-head"><h2>云输入</h2><span class="panel-meta">本地优先</span></div>
+        <article class="lrow" data-search="云输入 在线 服务"><div class="lrow-t"><div class="lrow-l">云输入</div><div class="lrow-h">需接入在线服务端点；当前完全本地运行，不上传输入内容</div></div>
           <div class="lrow-c"><span class="switch" aria-disabled="true"></span></div></article>
       </section>
 
@@ -621,7 +621,7 @@
       <div class="content-head"><div><h1>快捷键与手势</h1><p>当前版本已支持的按键</p></div></div>
 
       <section class="panel">
-        <div class="panel-head"><h2>按键</h2><span class="panel-meta">4 项已启用</span></div>
+        <div class="panel-head"><h2>按键</h2><span class="panel-meta">5 项已启用</span></div>
         <table>
           <thead><tr><th style="width:34%">功能</th><th style="width:36%">按键</th><th>状态</th></tr></thead>
           <tbody>
@@ -629,14 +629,28 @@
             <tr><td>提交首选</td><td><span class="tag">空格 / 回车</span></td><td><span class="tag ok">已启用</span></td></tr>
             <tr><td>选择候选</td><td><span class="tag">数字键 1 – 9</span></td><td><span class="tag ok">已启用</span></td></tr>
             <tr><td>取消输入</td><td><span class="tag">Esc</span></td><td><span class="tag ok">已启用</span></td></tr>
-            <tr><td>移动候选</td><td><span class="tag">← →</span></td><td><span class="tag off">预留</span></td></tr>
+            <tr><td>移动候选</td><td><span class="tag">← → / 滚轮</span></td><td><span class="tag ok">已启用</span></td></tr>
           </tbody>
         </table>
       </section>
 
       <section class="panel">
-        <div class="panel-head"><h2>手势与自定义快捷键</h2><span class="panel-meta">即将支持</span></div>
-        <div class="empty"><strong>暂未支持</strong>手势操作与自定义快捷键将在后续版本提供</div>
+        <div class="panel-head"><h2>手势与自定义快捷键</h2><span class="panel-meta">立即生效</span></div>
+        <table>
+          <thead><tr><th style="width:34%">操作</th><th style="width:36%">方式</th><th>状态</th></tr></thead>
+          <tbody>
+            <tr><td>切换候选</td><td><span class="tag">滚轮上 / 下</span></td><td><span class="tag ok">已启用</span></td></tr>
+            <tr><td>上屏候选</td><td><span class="tag">单击候选</span></td><td><span class="tag ok">已启用</span></td></tr>
+            <tr><td>取消输入</td><td><span class="tag">Esc</span></td><td><span class="tag ok">已启用</span></td></tr>
+          </tbody>
+        </table>
+        <article class="lrow" data-search="中英切换键 自定义快捷键">
+          <div class="lrow-t"><div class="lrow-l">中英切换键</div><div class="lrow-h">与「系统接入」中的设置同步</div></div>
+          <div class="lrow-c"><div class="seg lseg" id="gestureToggleSeg">
+            <span data-toggle="ctrl_space" class="on">Ctrl+Space</span>
+            <span data-toggle="shift">Shift</span>
+          </div></div>
+        </article>
       </section>
     </section>
 
@@ -710,7 +724,7 @@ function toast(msg) {
   toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1500);
 }
 
-let settings = { candidate_count: 10, prediction: true, learn: true, autostart: true, theme: 'dark', font_size: 16, toggle_key: 'ctrl_space' };
+let settings = { candidate_count: 10, prediction: true, learn: true, autostart: true, theme: 'dark', font_size: 16, toggle_key: 'ctrl_space', chinese_punctuation: true, fuzzy_pinyin: false };
 
 /* ── navigation ── */
 function showPage(id) {
@@ -727,6 +741,8 @@ function paint() {
   ['candidateCountVal', 'inputCandidateVal', 'statusCandidateMax', 'kpiMax'].forEach((id) => { if ($(id)) $(id).textContent = c; });
   ['learnSwitch', 'dictLearn'].forEach((id) => $(id) && $(id).classList.toggle('on', settings.learn));
   ['predictionSwitch', 'inputPrediction'].forEach((id) => $(id) && $(id).classList.toggle('on', settings.prediction));
+  if ($('inputPunct')) $('inputPunct').classList.toggle('on', settings.chinese_punctuation);
+  if ($('inputFuzzy')) $('inputFuzzy').classList.toggle('on', settings.fuzzy_pinyin);
   $('autostartSwitch').classList.toggle('on', settings.autostart);
   if ($('sysAutostart')) $('sysAutostart').classList.toggle('on', settings.autostart);
   if ($('sysToggleKey')) $('sysToggleKey').textContent = settings.toggle_key === 'shift' ? '轻按 Shift' : 'Ctrl + Space';
@@ -742,7 +758,7 @@ function paint() {
     const badge = el.querySelector('.badge');
     if (badge) badge.textContent = el.dataset.theme === settings.theme ? '当前' : '';
   });
-  document.querySelectorAll('#toggleKeySeg [data-toggle]').forEach((el) => {
+  document.querySelectorAll('[data-toggle]').forEach((el) => {
     el.classList.toggle('on', el.dataset.toggle === (settings.toggle_key || 'ctrl_space'));
   });
   applyPreview();
@@ -791,6 +807,8 @@ bindSwitch('predictionSwitch', 'prediction');
 bindSwitch('inputPrediction', 'prediction');
 bindSwitch('autostartSwitch', 'autostart');
 bindSwitch('sysAutostart', 'autostart');
+bindSwitch('inputPunct', 'chinese_punctuation');
+bindSwitch('inputFuzzy', 'fuzzy_pinyin');
 
 document.querySelectorAll('[data-theme]').forEach((el) => el.addEventListener('click', () => {
   settings.theme = el.dataset.theme;
@@ -805,7 +823,7 @@ document.querySelectorAll('[data-theme]').forEach((el) => el.addEventListener('c
   el.addEventListener('change', () => save(false));
 });
 
-document.querySelectorAll('#toggleKeySeg [data-toggle]').forEach((el) => el.addEventListener('click', () => {
+document.querySelectorAll('[data-toggle]').forEach((el) => el.addEventListener('click', () => {
   settings.toggle_key = el.dataset.toggle;
   paint();
   save(true);
