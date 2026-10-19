@@ -1238,6 +1238,21 @@ pub fn run() {
             let state = app.state::<AppState>();
             apply_settings(&handle, &state.server, &settings);
 
+            // The candidate strip must never take keyboard focus. If the WM
+            // focuses it, every later keystroke lands in our own webview and
+            // typing looks frozen until the user clicks back into the app.
+            #[cfg(target_os = "linux")]
+            if let Some(win) = app.get_webview_window("main") {
+                use gtk::prelude::GtkWindowExt;
+                if let Ok(gtk_win) = win.gtk_window() {
+                    // A dock-type window is ignored by the WM's focus model:
+                    // clicks on candidates never pull focus out of the editor.
+                    gtk_win.set_type_hint(gtk::gdk::WindowTypeHint::Dock);
+                    gtk_win.set_accept_focus(false);
+                    gtk_win.set_focus_on_map(false);
+                }
+            }
+
             // System tray: click the logo to open settings, right-click for menu.
             if let Some(icon) = app
                 .default_window_icon()

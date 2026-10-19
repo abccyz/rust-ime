@@ -14,6 +14,9 @@ ime-engine = { path = "../crates/ime-engine" }
 ime-fcitx5 = { path = "../crates/ime-fcitx5" }
 x11-dl = "2"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 

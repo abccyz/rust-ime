@@ -2841,6 +2841,7 @@ dependencies = [
 name = "rust-ime-app"
 version = "0.1.0"
 dependencies = [
+ "gtk",
  "ime-engine",
  "ime-fcitx5",
  "serde",

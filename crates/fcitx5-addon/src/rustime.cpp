@@ -13,6 +13,7 @@
 #include <fcitx/inputpanel.h>
 #include <fcitx/instance.h>
 #include <fcitx/text.h>
+#include <fcitx-utils/event.h>
 #include <fcitx-utils/keysym.h>
 
 #include <cerrno>
@@ -84,9 +85,7 @@ public:
     explicit RustImeEngine(fcitx::Instance *instance) : instance_(instance) {}
 
     ~RustImeEngine() override {
-        if (sock_ >= 0) {
-            ::close(sock_);
-        }
+        closeSocket();
         std::lock_guard<std::mutex> lock(mutex_);
         for (auto &[ic, handle] : engines_) {
             rust_ime_free(handle);
@@ -196,6 +195,15 @@ private:
     }
 
     // ── IPC with the rust-ime Tauri app ────────────────────────────────
+    void closeSocket() {
+        // Destroy the watcher before the fd it references.
+        ioEvent_.reset();
+        if (sock_ >= 0) {
+            ::close(sock_);
+            sock_ = -1;
+        }
+    }
+
     bool ensureSocket() {
         if (sock_ >= 0) {
             return true;
@@ -216,6 +224,14 @@ private:
         int flags = ::fcntl(fd, F_GETFL, 0);
         ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
         sock_ = fd;
+        // Selection commands from the UI arrive without a following key
+        // event, so watch the socket instead of polling it on key presses.
+        ioEvent_ = instance_->eventLoop().addIOEvent(
+            fd, fcitx::IOEventFlag::In,
+            [this](fcitx::EventSourceIO *, int, fcitx::IOEventFlags) {
+                pollCommands();
+                return true;
+            });
         return true;
     }
 
@@ -225,8 +241,7 @@ private:
         }
         ssize_t n = ::write(sock_, line.data(), line.size());
         if (n < 0 && errno != EAGAIN) {
-            ::close(sock_);
-            sock_ = -1;
+            closeSocket();
         }
     }
 
@@ -238,8 +253,7 @@ private:
         char buf[256];
         ssize_t n = ::read(sock_, buf, sizeof(buf));
         if (n == 0 || (n < 0 && errno != EAGAIN)) {
-            ::close(sock_);
-            sock_ = -1;
+            closeSocket();
             return;
         }
         if (n < 0) {
@@ -343,6 +357,7 @@ private:
     std::mutex mutex_;
     std::unordered_map<fcitx::InputContext *, RustIme *> engines_;
     int sock_ = -1;
+    std::unique_ptr<fcitx::EventSourceIO> ioEvent_;
     fcitx::InputContext *lastIc_ = nullptr;
     std::vector<std::string> lastCands_;
 };
