@@ -35,22 +35,24 @@
         word-break: break-all;
       }
       #candidates {
-        display: flex; gap: 6px; flex-wrap: nowrap;
-        overflow-x: auto; overflow-y: hidden;
-        padding-bottom: 2px;
-        scrollbar-width: none;
+        display: flex; flex-direction: column; gap: 4px;
+        overflow-y: auto;
+        scrollbar-width: thin;
       }
-      #candidates::-webkit-scrollbar { display: none; }
+      #candidates::-webkit-scrollbar { width: 4px; }
+      #candidates::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
       .cand {
-        flex: 0 0 auto;
-        padding: 6px 10px;
-        border-radius: 8px;
-        font-size: 15px;
-        background: rgba(255, 255, 255, 0.05);
+        display: flex; align-items: center; justify-content: space-between;
+        gap: 10px;
+        padding: 5px 10px;
+        border-radius: 6px;
+        font-size: 16px;
+        background: rgba(255, 255, 255, 0.04);
         border: 1px solid var(--border);
         cursor: pointer;
         white-space: nowrap;
         transition: background 0.08s, border-color 0.08s;
+        text-align: left;
       }
       .cand:hover { background: rgba(255, 255, 255, 0.10); }
       .cand.selected {
@@ -58,10 +60,15 @@
         border-color: var(--accent);
         color: #fff;
       }
-      .cand .py {
-        display: block; font-size: 10px; color: var(--muted); margin-top: 2px;
+      .cand .idx {
+        flex: 0 0 auto;
+        font-size: 11px; color: var(--muted); width: 12px;
       }
-      .cand.selected .py { color: rgba(255, 255, 255, 0.7); }
+      .cand .txt { flex: 1 1 auto; }
+      .cand .py {
+        flex: 0 0 auto; font-size: 11px; color: var(--muted);
+      }
+      .cand.selected .py, .cand.selected .idx { color: rgba(255, 255, 255, 0.75); }
       #hint {
         font-size: 11px; color: var(--muted);
       }
@@ -105,12 +112,16 @@
         view.candidates.forEach((c, i) => {
           const el = document.createElement('div');
           el.className = 'cand' + (i === selectedIdx ? ' selected' : '');
+          const idx = document.createElement('span');
+          idx.className = 'idx';
+          idx.textContent = String(i + 1);
           const main = document.createElement('span');
+          main.className = 'txt';
           main.textContent = c.text;
           const py = document.createElement('span');
           py.className = 'py';
           py.textContent = c.pinyin;
-          el.appendChild(main); el.appendChild(py);
+          el.appendChild(idx); el.appendChild(main); el.appendChild(py);
           el.addEventListener('click', () => selectCandidate(i));
           candEl.appendChild(el);
         });

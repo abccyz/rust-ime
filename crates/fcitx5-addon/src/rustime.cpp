@@ -174,7 +174,8 @@ private:
         int count = rust_ime_candidate_count(h);
         if (count > 0) {
             auto list = std::make_unique<fcitx::CommonCandidateList>();
-            list->setPageSize(9);
+            // Show up to 10 candidates (vertical layout is a classicui setting).
+            list->setPageSize(10);
             for (int i = 0; i < count; ++i) {
                 char cbuf[512];
                 int cn = rust_ime_candidate(h, i, cbuf, sizeof(cbuf));

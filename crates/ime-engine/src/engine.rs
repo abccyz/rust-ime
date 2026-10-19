@@ -87,7 +87,12 @@ pub struct Engine {
     /// Path to the user dictionary file. When set, `commit_candidate`
     /// auto-saves the snapshot after each commit.
     user_dict_path: Option<std::path::PathBuf>,
+    /// Last committed text — the context used for next-word prediction.
+    last_committed: Option<String>,
 }
+
+/// Maximum candidates shown per page (vertical list).
+pub const MAX_CANDIDATES: usize = 10;
 
 impl Default for Engine {
     fn default() -> Self {
@@ -111,6 +116,7 @@ impl Engine {
             recent: VecDeque::new(),
             max_recent: 64,
             user_dict_path: None,
+            last_committed: None,
         }
     }
 
@@ -134,18 +140,63 @@ impl Engine {
     }
 
     pub fn state(&self) -> PreeditState {
+        // With no active pinyin, show next-word predictions based on the last
+        // committed text (contextual completion). While typing, show the
+        // pinyin conversion candidates.
+        let candidates = if self.buffer.is_empty() {
+            match self.last_committed.as_deref() {
+                Some(ctx) => self.candidates.predict(ctx, MAX_CANDIDATES),
+                None => Vec::new(),
+            }
+        } else {
+            self.candidates.candidates(&self.buffer, MAX_CANDIDATES)
+        };
         PreeditState {
             raw: self.buffer.clone(),
-            is_valid_pinyin: self.candidates.is_valid_pinyin(&self.buffer),
-            candidates: self.candidates.candidates(&self.buffer, 9),
+            is_valid_pinyin: !self.buffer.is_empty()
+                && self.candidates.is_valid_pinyin(&self.buffer),
+            candidates,
             selected: self.selected,
         }
+    }
+
+    /// Whether contextual next-word predictions are currently displayed.
+    pub fn has_predictions(&self) -> bool {
+        self.buffer.is_empty()
+            && self
+                .last_committed
+                .as_deref()
+                .map(|c| !self.candidates.predict(c, 1).is_empty())
+                .unwrap_or(false)
     }
 
     /// Feed a physical key. Returns the events the front end must apply, in
     /// order. The front end should apply them and then re-read `state()` if it
     /// needs the full preedit/candidate snapshot.
     pub fn feed_key(&mut self, key: Key) -> Vec<EngineEvent> {
+        // Prediction mode: no pinyin buffer, but contextual predictions are
+        // showing. Number/Space/Enter pick one; Escape dismisses.
+        if self.buffer.is_empty() && self.has_predictions() {
+            match key {
+                Key::Digit(d) => {
+                    let idx = (d as usize).saturating_sub(1);
+                    if idx < self.state().candidates.len() {
+                        return self.commit_candidate(idx);
+                    }
+                    return vec![EngineEvent::Noop];
+                }
+                Key::Enter | Key::Space => return self.commit_candidate(0),
+                Key::Escape => {
+                    self.last_committed = None;
+                    self.selected = 0;
+                    return vec![EngineEvent::Clear];
+                }
+                // Any letter starts a fresh pinyin buffer; fall through.
+                Key::Letter(_) => {}
+                _ => {}
+            }
+        }
+
         match key {
             Key::Letter(c) => {
                 let c = c.to_ascii_lowercase();
@@ -188,7 +239,7 @@ impl Engine {
             Key::Enter | Key::Space => self.finish(false),
             Key::Digit(d) => {
                 let idx = (d as usize) - 1;
-                if idx < 9 {
+                if idx < MAX_CANDIDATES {
                     let st = self.state();
                     if idx < st.candidates.len() {
                         self.commit_candidate(idx)
@@ -225,7 +276,11 @@ impl Engine {
             return vec![EngineEvent::Noop];
         }
         let pinyin = st.raw.clone();
-        self.learn(&pinyin, &text);
+        // Only learn a pinyin→word mapping when the commit came from pinyin
+        // conversion; predictions are pure context, not a spelling signal.
+        if !pinyin.is_empty() {
+            self.learn(&pinyin, &text);
+        }
         self.buffer.clear();
         self.selected = 0;
         self.just_committed = true;
@@ -233,7 +288,11 @@ impl Engine {
         if self.recent.len() > self.max_recent {
             self.recent.pop_front();
         }
-        self.persist_commit(&pinyin, &text);
+        if !pinyin.is_empty() {
+            self.persist_commit(&pinyin, &text);
+        }
+        // Chain predictions from the newly committed text.
+        self.last_committed = Some(text.clone());
         vec![EngineEvent::Commit(text)]
     }
 
@@ -282,11 +341,12 @@ impl Engine {
 
     /// Drop the preedit without committing (focus loss / window close).
     pub fn reset(&mut self) -> Vec<EngineEvent> {
+        self.last_committed = None;
+        self.selected = 0;
         if self.buffer.is_empty() {
             return vec![EngineEvent::Noop];
         }
         self.buffer.clear();
-        self.selected = 0;
         self.just_committed = true;
         vec![EngineEvent::Clear]
     }
@@ -381,5 +441,61 @@ mod tests {
             .iter()
             .position(|c| c.text == first)
             .is_some());
+    }
+}
+
+#[cfg(test)]
+mod prediction_tests {
+    use super::*;
+
+    #[test]
+    fn predicts_after_commit() {
+        let mut e = Engine::new();
+        for c in "nihao".chars() {
+            e.feed_key(Key::Letter(c));
+        }
+        e.feed_key(Key::Enter); // commit 你好
+        let st = e.state();
+        assert_eq!(st.raw, "");
+        assert!(
+            st.candidates.iter().any(|c| c.text == "吗"),
+            "expected 吗 predicted after 你好, got {:?}",
+            st.candidates.iter().map(|c| &c.text).collect::<Vec<_>>()
+        );
+        assert!(st.candidates.len() <= MAX_CANDIDATES);
+    }
+
+    #[test]
+    fn space_accepts_first_prediction() {
+        let mut e = Engine::new();
+        for c in "nihao".chars() {
+            e.feed_key(Key::Letter(c));
+        }
+        e.feed_key(Key::Enter);
+        let first = e.state().candidates.first().map(|c| c.text.clone()).unwrap();
+        let ev = e.feed_key(Key::Space);
+        assert!(ev.iter().any(|x| matches!(x, EngineEvent::Commit(t) if t == &first)));
+    }
+
+    #[test]
+    fn escape_dismisses_predictions() {
+        let mut e = Engine::new();
+        for c in "nihao".chars() {
+            e.feed_key(Key::Letter(c));
+        }
+        e.feed_key(Key::Enter);
+        assert!(e.has_predictions());
+        let ev = e.feed_key(Key::Escape);
+        assert!(ev.contains(&EngineEvent::Clear));
+        assert!(!e.has_predictions());
+    }
+
+    #[test]
+    fn max_ten_candidates() {
+        let mut e = Engine::new();
+        for c in "shi".chars() {
+            e.feed_key(Key::Letter(c));
+        }
+        assert!(e.state().candidates.len() <= MAX_CANDIDATES);
     }
 }

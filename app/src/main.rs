@@ -67,30 +67,24 @@ struct PreeditView {
     total_pages: usize,
 }
 
-const PAGE_SIZE: usize = 9;
-
 fn snapshot(server: &ImeServer) -> PreeditView {
     let st = server.state();
-    let total = st.candidates.len().div_ceil(PAGE_SIZE);
-    let page = st.selected.div_ceil(PAGE_SIZE).min(total.saturating_sub(1));
-    let start = page * PAGE_SIZE;
-    let end = (start + PAGE_SIZE).min(st.candidates.len());
-    let page_candidates = &st.candidates[start..end];
-
     PreeditView {
         is_valid_pinyin: st.is_valid_pinyin,
         raw: st.raw.clone(),
-        candidates: page_candidates
+        // Vertical list: show all candidates (engine caps at 10).
+        candidates: st
+            .candidates
             .iter()
             .enumerate()
             .map(|(i, c)| CandidateView {
                 text: c.text.clone(),
                 pinyin: c.pinyin.clone(),
-                selected: i + start == st.selected,
+                selected: i == st.selected,
             })
             .collect(),
-        page,
-        total_pages: total,
+        page: 0,
+        total_pages: usize::from(!st.candidates.is_empty()),
     }
 }
 
@@ -104,7 +98,9 @@ fn emit_preedit(app: &AppHandle, server: &ImeServer) {
         return;
     };
     let snap = snapshot(server);
-    let active = !snap.raw.is_empty();
+    // Keep the strip visible for contextual predictions too (raw empty but
+    // candidates present after a commit).
+    let active = !snap.raw.is_empty() || !snap.candidates.is_empty();
 
     if active {
         // Snapshot the focused window BEFORE we show our always-on-top strip.
@@ -113,8 +109,14 @@ fn emit_preedit(app: &AppHandle, server: &ImeServer) {
             PREV_FOCUS.store(focus, Ordering::SeqCst);
         }
 
-        // Candidate strip is a fixed 520x110 (logical px).
-        let _ = win.set_size(tauri::LogicalSize::new(520.0, 124.0));
+        // Vertical list: grow with the candidate count (max 10).
+        let n = snap.candidates.len();
+        let height = if n == 0 {
+            110.0
+        } else {
+            (74.0 + n as f64 * 36.0).min(470.0)
+        };
+        let _ = win.set_size(tauri::LogicalSize::new(520.0, height));
         // Place it just below-right of the pointer.
         match keygrab::pointer_pos() {
             Some((x, y)) => {
@@ -152,6 +154,11 @@ fn emit_preedit(app: &AppHandle, server: &ImeServer) {
 /// injecting the Chinese text.
 static LEAKED_CHARS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
+/// Set while we are injecting text via xdotool. Our own XRecord capture sees
+/// those synthetic keys; they must be ignored or they would corrupt the
+/// engine state (e.g. the erase-BackSpaces would dismiss predictions).
+static INJECTING: AtomicBool = AtomicBool::new(false);
+
 /// Commit text to the focused app: first erase leaked pinyin letters, then
 /// inject the committed text. Both run in one ordered `xdotool` invocation
 /// (UTF-8/CJK capable).
@@ -176,8 +183,16 @@ fn commit_text(_app: &AppHandle, _server: &ImeServer, text: &str) {
     if !text.is_empty() {
         cmd.args(["type", "--clearmodifiers", "--delay", "0", text]);
     }
+    INJECTING.store(true, Ordering::SeqCst);
     if let Err(e) = cmd.spawn() {
         eprintln!("[rust-ime] xdotool inject failed: {e}");
+        INJECTING.store(false, Ordering::SeqCst);
+    } else {
+        // Let the synthetic key stream finish, then stop ignoring captures.
+        std::thread::spawn(|| {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+            INJECTING.store(false, Ordering::SeqCst);
+        });
     }
 }
 
@@ -244,25 +259,6 @@ fn select_candidate(app: AppHandle, state: State<AppState>, _idx: usize) -> Resu
 }
 
 #[tauri::command]
-fn page_next(app: AppHandle, state: State<AppState>) -> Result<(), String> {
-    // Jump selection by PAGE_SIZE.
-    for _ in 0..PAGE_SIZE {
-        let _ = state.server.on_key(ime_engine::Key::Right);
-    }
-    emit_preedit(&app, &state.server);
-    Ok(())
-}
-
-#[tauri::command]
-fn page_prev(app: AppHandle, state: State<AppState>) -> Result<(), String> {
-    for _ in 0..PAGE_SIZE {
-        let _ = state.server.on_key(ime_engine::Key::Left);
-    }
-    emit_preedit(&app, &state.server);
-    Ok(())
-}
-
-#[tauri::command]
 fn reset_engine(app: AppHandle, state: State<AppState>) -> Result<(), String> {
     state.server.reset();
     emit_preedit(&app, &state.server);
@@ -313,6 +309,10 @@ static CTRL_DOWN: AtomicBool = AtomicBool::new(false);
 
 /// Handle a grabbed key: decide whether to consume (IME mode) or pass through.
 fn handle_grabbed_key(app: &AppHandle, gk: &GrabbedKey) {
+    // Ignore the synthetic keys we ourselves inject via xdotool.
+    if INJECTING.load(Ordering::SeqCst) {
+        return;
+    }
     // Track Ctrl state (press and release) for the Ctrl+Space toggle.
     if gk.keycode == KC_CTRL_L || gk.keycode == KC_CTRL_R {
         CTRL_DOWN.store(gk.is_press, Ordering::SeqCst);
@@ -493,8 +493,6 @@ pub fn run() {
             feed_key,
             commit_candidate,
             select_candidate,
-            page_next,
-            page_prev,
             reset_engine
         ])
         .run(tauri::generate_context!())

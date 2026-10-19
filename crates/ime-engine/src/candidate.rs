@@ -149,6 +149,65 @@ impl CandidateEngine {
         &mut self.user
     }
 
+    /// Predict the next word(s) after `context` (the last committed text).
+    ///
+    /// Two sources:
+    /// 1. a built-in bigram table of common collocations (high confidence);
+    /// 2. dictionary words that *start with* the context and are longer,
+    ///    showing just the remainder (e.g. context "你好" → "吗").
+    ///
+    /// Returns at most `max` candidates, best first, deduplicated.
+    pub fn predict(&self, context: &str, max: usize) -> Vec<Candidate> {
+        let context = context.trim();
+        if context.is_empty() {
+            return Vec::new();
+        }
+        let mut acc: BTreeMap<String, f64> = BTreeMap::new();
+
+        // 1) Bigram collocations.
+        for (prev, next, score) in BIGRAMS {
+            if *prev == context {
+                let e = acc.entry((*next).to_string()).or_insert(f64::NEG_INFINITY);
+                if *e < *score {
+                    *e = *score;
+                }
+            }
+        }
+
+        // 2) Dictionary prefix completion: show only the remainder so the
+        //    candidate reads naturally after the already-committed context.
+        for (word, freq) in self.sys.iter().chain(self.user.iter()) {
+            if let Some(rest) = word.strip_prefix(context) {
+                if rest.is_empty() {
+                    continue;
+                }
+                // Keep completions short; long tails are usually noise.
+                if rest.chars().count() > 4 {
+                    continue;
+                }
+                // Skip punctuation-only tails ("你好。" → "。").
+                if rest.chars().all(|c| {
+                    c.is_ascii_punctuation()
+                        || "。，！？、；：（）《》〈〉“”‘’…—·～".contains(c)
+                }) {
+                    continue;
+                }
+                let e = acc.entry(rest.to_string()).or_insert(f64::NEG_INFINITY);
+                if *e < *freq - 1.0 {
+                    *e = *freq - 1.0;
+                }
+            }
+        }
+
+        let mut out: Vec<Candidate> = acc
+            .into_iter()
+            .map(|(text, score)| Candidate::new(text, String::new(), score))
+            .collect();
+        out.sort_by(|a, b| b.score.total_cmp(&a.score));
+        out.truncate(max);
+        out
+    }
+
     /// Produce ranked candidates for the current toneless pinyin `buffer`.
     ///
     /// Returns at most `max` candidates, ordered by score descending,
@@ -360,6 +419,75 @@ pub fn load_dict_str(s: &str, dict: &mut Dictionary) {
         dict.insert(pinyin, word, logfreq);
     }
 }
+
+
+/// Common word collocations used by `predict()`.
+///
+/// (previous word, next word, score). Curated from everyday Chinese; the
+/// dictionary-prefix fallback in `predict()` covers everything else.
+const BIGRAMS: &[(&str, &str, f64)] = &[
+    ("你好", "吗", 9.5),
+    ("你好", "啊", 8.6),
+    ("你好", "世界", 8.2),
+    ("谢谢", "你", 9.2),
+    ("谢谢", "大家", 7.8),
+    ("不客气", "的", 7.5),
+    ("对不起", "我", 8.2),
+    ("没关系", "的", 7.8),
+    ("我们", "可以", 9.0),
+    ("我们", "一起", 8.7),
+    ("我们", "的", 8.1),
+    ("我们", "需要", 8.3),
+    ("你们", "好", 8.6),
+    ("他们", "的", 8.0),
+    ("今天", "天气", 8.7),
+    ("今天", "是", 8.2),
+    ("今天", "下午", 7.6),
+    ("明天", "见", 8.8),
+    ("明天", "早上", 7.4),
+    ("昨天", "晚上", 7.6),
+    ("不是", "很", 8.0),
+    ("这个", "问题", 8.3),
+    ("这个", "可以", 7.9),
+    ("那个", "时候", 7.6),
+    ("请问", "你", 8.1),
+    ("请问", "一下", 8.6),
+    ("可以", "吗", 9.1),
+    ("可以", "的", 8.2),
+    ("可以", "使用", 7.7),
+    ("什么", "时候", 8.6),
+    ("什么", "东西", 8.1),
+    ("怎么", "样", 9.0),
+    ("怎么", "办", 8.6),
+    ("为什么", "呢", 7.8),
+    ("非常", "感谢", 8.7),
+    ("非常", "好", 8.2),
+    ("非常", "重要", 7.9),
+    ("欢迎", "使用", 8.2),
+    ("欢迎", "来到", 7.8),
+    ("中文", "输入法", 8.8),
+    ("输入法", "的", 7.6),
+    ("豆包", "输入法", 8.0),
+    ("我", "们", 9.3),
+    ("你", "们", 9.1),
+    ("他", "们", 9.0),
+    ("不", "是", 9.2),
+    ("不", "好", 8.0),
+    ("不", "知道", 8.6),
+    ("没", "有", 9.2),
+    ("有", "的", 7.8),
+    ("很", "好", 8.8),
+    ("很", "重要", 8.0),
+    ("是", "的", 9.3),
+    ("一", "个", 9.2),
+    ("这", "个", 9.2),
+    ("那", "个", 9.1),
+    ("就", "是", 8.9),
+    ("也", "是", 8.7),
+    ("在", "哪", 8.3),
+    ("做", "什么", 8.5),
+    ("说", "什么", 8.1),
+];
 
 #[cfg(test)]
 mod tests {

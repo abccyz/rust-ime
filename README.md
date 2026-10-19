@@ -86,8 +86,9 @@ sudo apt install libfcitx5-dev
 | 5500+ 词条覆盖常用汉字/词语 | ✅ |
 | XIM 原生 commit（GTK/Qt/fcitx5 客户端） | ✅ |
 | XTest fallback（ASCII 场景） | ✅ |
-| 候选窗分页（9 条/页，翻页） | ✅ |
-| 光标定位候选窗（跟随鼠标 +8/+24，520×96） | ✅ |
+| 候选窗竖排，最多 10 个候选（带序号） | ✅ |
+| 上下文预测（提交后预测下一个词） | ✅ |
+| 光标定位候选窗（跟随鼠标 +8/+24） | ✅ |
 | 全局键盘捕获（XRecord device_events） | ✅ |
 | 中英切换（Ctrl+Space） | ✅ |
 | 泄露字母自动擦除（提交前退格） | ✅ |
@@ -179,3 +180,26 @@ sudo apt install libfcitx5-dev
 - [ ] Phase 8: Wayland 支持（wlr-input-method protocol）
 - [ ] Phase 9: 云端 API 接入（ime.doubao.com）
 - [ ] Phase 10: LLM 联想 + 语音输入
+
+## 智能预测
+
+提交一个词后，候选窗会基于上下文预测下一个词：
+
+- **高频搭配表**（内置 bigram，如「你好」→ 吗 / 啊 / 世界）
+- **词库前缀补全**（词库里以该词开头的更长的词，只显示剩余部分）
+
+按 `空格/回车` 接受首选预测，`数字键` 选择，`Esc` 关闭预测。
+
+竖排候选最多 10 个，带序号，可鼠标点击选择。
+
+## fcitx5 插件（系统级接入）
+
+```bash
+sudo apt install libfcitx5core-dev   # 开发头文件
+make addon                           # 构建 librustime.so
+sudo ./scripts/install-fcitx5-addon.sh
+fcitx5-remote -r                     # 重启 fcitx5
+```
+
+安装后在 fcitx5 配置工具的输入法列表中添加 **rust-ime**。
+插件由 fcitx5 驱动按键、渲染候选窗并提交文本，不再需要 XRecord/xdotool。
