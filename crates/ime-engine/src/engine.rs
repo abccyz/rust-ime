@@ -565,3 +565,4 @@ mod prediction_tests {
         assert!(e.state().candidates.len() <= MAX_CANDIDATES);
     }
 }
+

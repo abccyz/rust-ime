@@ -89,6 +89,18 @@ impl Dictionary {
         self.freq.iter()
     }
 
+    /// The highest-frequency word whose pinyin is exactly `pinyin`.
+    pub fn exact_best(&self, pinyin: &str) -> Option<(String, f64)> {
+        let mut cur = &self.root;
+        for ch in pinyin.chars() {
+            cur = cur.children.get(&ch)?;
+        }
+        cur.words
+            .iter()
+            .max_by(|a, b| a.1.total_cmp(b.1))
+            .map(|(w, f)| (w.clone(), *f))
+    }
+
     /// All words whose pinyin starts with `prefix`, with their base score.
     pub fn prefix_lookup(&self, prefix: &str) -> Vec<(String, String, f64)> {
         let prefix = prefix.to_string();
@@ -167,6 +179,57 @@ impl CandidateEngine {
     /// Drop all learned user entries.
     pub fn clear_user(&mut self) {
         self.user = Dictionary::new();
+    }
+
+    /// Convert the whole pinyin buffer into a sentence using Viterbi-style
+    /// dynamic programming over dictionary words and bare syllables.
+    ///
+    /// This is what makes long input work: `nihao` alone was covered by prefix
+    /// lookup, but a full sentence like `nihaoshijie` is not stored as one
+    /// dictionary key.
+    pub fn convert_sentence(&self, buffer: &str) -> Option<String> {
+        let b = buffer.trim().to_ascii_lowercase();
+        let n = b.len();
+        if n == 0 {
+            return None;
+        }
+        // best[i] = (score, text) for buffer[..i]
+        let mut best: Vec<Option<(f64, String)>> = vec![None; n + 1];
+        best[0] = Some((0.0, String::new()));
+
+        for i in 0..n {
+            let Some((score_i, text_i)) = best[i].clone() else {
+                continue;
+            };
+            for len in 1..=std::cmp::min(12, n - i) {
+                let chunk = &b[i..i + len];
+                let hit = self
+                    .sys
+                    .exact_best(chunk)
+                    .or_else(|| self.user.exact_best(chunk));
+                let (word, add) = match hit {
+                    Some((w, f)) => (w, f),
+                    None => {
+                        // Bare syllable fallback keeps the path alive.
+                        if !pinyin::is_syllable(chunk) {
+                            continue;
+                        }
+                        (chunk.to_string(), -6.0)
+                    }
+                };
+                // Penalise every segment so a longer dictionary word beats
+                // splitting into several short (individually frequent) ones.
+                const SEGMENT_PENALTY: f64 = 9.0;
+                let ns = score_i + add - SEGMENT_PENALTY;
+                let better = best[i + len]
+                    .as_ref()
+                    .map_or(true, |(s, _)| ns > *s);
+                if better {
+                    best[i + len] = Some((ns, format!("{text_i}{word}")));
+                }
+            }
+        }
+        best[n].as_ref().map(|(_, t)| t.clone())
     }
 
     /// Predict the next word(s) after `context` (the last committed text).
@@ -290,12 +353,17 @@ impl CandidateEngine {
                 .map(|(text, score)| Candidate::new(text, buffer.clone(), score)),
         );
 
-        // Passthrough candidate: the raw buffer as-is, lowest score, so it
-        // lands last but is available when the buffer is *not* valid pinyin
-        // (lets the user commit pure Latin text they didn't intend to
-        // convert). We suppress it when the buffer IS valid pinyin, so
-        // candidate lists stay clean.
-        if self.allow_passthrough && pinyin::primary_segmentation(&buffer).is_none() {
+        // Whole-buffer sentence conversion: this is what makes long input
+        // (e.g. "nihaoshijie") produce candidates at all.
+        if let Some(sentence) = self.convert_sentence(&buffer) {
+            if !sentence.is_empty() && !out.iter().any(|c| c.text == sentence) {
+                out.push(Candidate::new(sentence, buffer.clone(), 100.0));
+            }
+        }
+
+        // Passthrough candidate: the raw buffer as-is, always available so the
+        // user can commit Latin text or an unconverted pinyin string.
+        if self.allow_passthrough {
             let has_exact = out.iter().any(|c| c.text == buffer);
             if !has_exact {
                 out.push(Candidate::new(buffer.clone(), buffer.clone(), -1000.0));
@@ -581,13 +649,39 @@ mod tests {
     }
 
     #[test]
+    fn converts_long_sentence() {
+        let e = engine();
+        let c = e.candidates("nihaoshijie", 10);
+        assert!(!c.is_empty());
+        assert!(
+            c[0].text.contains("你好"),
+            "expected a sentence candidate starting with 你好, got {:?}",
+            c.iter().map(|x| &x.text).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn passthrough_always_available() {
+        let e = engine();
+        let c = e.candidates("xyz", 10);
+        assert!(c.iter().any(|x| x.text == "xyz"));
+        // valid pinyin still keeps the raw option as the last candidate
+        let c2 = e.candidates("nihaoshijie", 10);
+        assert!(c2.iter().any(|x| x.text == "nihaoshijie"));
+    }
+
+    #[test]
     fn dedup_and_order() {
         let mut e = CandidateEngine::new();
         e.system_dictionary().insert("aa", "甲", 2.0);
         e.system_dictionary().insert("aa", "乙", 5.0);
         let c = e.candidates("aa", 10);
-        assert_eq!(c.len(), 2);
+        // 乙, 甲 and the always-available raw passthrough.
+        assert_eq!(c.len(), 3);
         assert_eq!(c[0].text, "乙");
         assert_eq!(c[1].text, "甲");
+        assert!(c.iter().any(|x| x.text == "aa"));
     }
 }
+
+

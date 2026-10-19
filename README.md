@@ -296,3 +296,14 @@ fcitx5 插件把拼音与候选通过 Unix socket
 - 程序未运行时，插件自动回退到 fcitx5 的 classicui 候选面板
 - 文本提交始终走 fcitx5 的 InputContext，不再需要 XTest 注入
 - `rust-ime --install-addon` 会自动拉起 UI 宿主（setsid 脱离终端）
+
+## 词库数据
+
+`crates/ime-engine/data/dict.txt` 由 `scripts/gen-dict.py` 生成：
+
+- 词条与词频来自 jieba 的词频表（MIT）
+- 拼音由 pypinyin 按词语上下文转换（多音字友好，MIT）
+- 取词频最高的 6 万条 1–4 字词
+
+长拼音输入（如整句）用 Viterbi 分词转换：`nihaoshijie` → 你好世界，
+`zhongguorenmin` → 中国人民；并始终保留原样拼音候选，不会出现“无候选”。
