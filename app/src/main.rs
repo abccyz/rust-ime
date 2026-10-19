@@ -364,9 +364,19 @@ fn do_install_fcitx5_addon() -> Result<String, String> {
     std::fs::write(im_dir.join("rust-ime.conf"), im)
         .map_err(|e| format!("写入输入法配置失败: {e}"))?;
 
+    // fcitx5 rewrites its profile on exit, so stop it BEFORE editing the
+    // profile, otherwise our change is overwritten by the old instance.
+    let _ = std::process::Command::new("fcitx5-remote").arg("-e").status();
+    for _ in 0..30 {
+        if !process_running("fcitx5") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
     update_fcitx5_profile().map_err(|e| format!("更新 fcitx5 配置失败: {e}"))?;
 
-    // Restart fcitx5 so it picks up the new addon.
+    // Start fcitx5 again so it picks up the addon.
     let _ = std::process::Command::new("fcitx5").args(["-d", "-r"]).spawn();
     Ok("已安装 fcitx5 插件，并设为默认输入法".to_string())
 }
@@ -379,9 +389,27 @@ fn install_fcitx5_addon() -> Result<String, String> {
 /// Remove the addon from the user's fcitx5.
 fn do_uninstall_fcitx5_addon() -> Result<String, String> {
     let (data, lib) = fcitx5_user_paths();
+    // Stop first so fcitx5 does not rewrite the profile we restore.
+    let _ = std::process::Command::new("fcitx5-remote").arg("-e").status();
+    for _ in 0..30 {
+        if !process_running("fcitx5") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
     let _ = std::fs::remove_file(data.join("addon/rustime.conf"));
     let _ = std::fs::remove_file(data.join("inputmethod/rust-ime.conf"));
     let _ = std::fs::remove_file(lib.join("librustime.so"));
+
+    // Restore the profile snapshot taken at install time.
+    let home = std::env::var("HOME").unwrap_or_default();
+    let profile = format!("{home}/.config/fcitx5/profile");
+    let backup = format!("{profile}.bak-rustime");
+    if std::path::Path::new(&backup).exists() {
+        let _ = std::fs::copy(&backup, &profile);
+    }
+
     let _ = std::process::Command::new("fcitx5").args(["-d", "-r"]).spawn();
     Ok("已卸载 fcitx5 插件".to_string())
 }
