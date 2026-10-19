@@ -159,6 +159,11 @@ impl CandidateEngine {
         self.user.len()
     }
 
+    /// Iterate learned user entries as (word, frequency).
+    pub fn user_words(&self) -> impl Iterator<Item = (&String, &f64)> {
+        self.user.iter()
+    }
+
     /// Drop all learned user entries.
     pub fn clear_user(&mut self) {
         self.user = Dictionary::new();

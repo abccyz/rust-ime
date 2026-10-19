@@ -162,6 +162,18 @@ impl Engine {
         (self.candidates.system_len(), self.candidates.user_len())
     }
 
+    /// Learned user entries as (word, frequency), highest frequency first.
+    pub fn user_words(&self, limit: usize) -> Vec<(String, f64)> {
+        let mut v: Vec<(String, f64)> = self
+            .candidates
+            .user_words()
+            .map(|(w, f)| (w.clone(), *f))
+            .collect();
+        v.sort_by(|a, b| b.1.total_cmp(&a.1));
+        v.truncate(limit);
+        v
+    }
+
     /// Clear learned user entries and persist the empty dictionary.
     pub fn clear_user_dict(&mut self) {
         self.candidates.clear_user();

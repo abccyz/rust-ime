@@ -208,6 +208,37 @@ fn clear_user_dict(state: State<'_, AppState>) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+struct UserWord {
+    word: String,
+    freq: f64,
+}
+
+#[tauri::command]
+fn list_user_words(state: State<'_, AppState>, limit: usize) -> Vec<UserWord> {
+    state
+        .server
+        .user_words(limit)
+        .into_iter()
+        .map(|(word, freq)| UserWord { word, freq })
+        .collect()
+}
+
+/// Export the user dictionary to a user-visible file.
+#[tauri::command]
+fn export_user_dict() -> Result<String, String> {
+    let src = user_dict_path();
+    let home = std::env::var("HOME").map_err(|_| "no HOME".to_string())?;
+    let dst = std::path::PathBuf::from(format!("{home}/rust-ime-用户词库.txt"));
+    if !src.exists() {
+        // Nothing learned yet: write an empty, valid file.
+        let _ = std::fs::create_dir_all(src.parent().unwrap_or(std::path::Path::new(".")));
+        let _ = std::fs::write(&src, "");
+    }
+    std::fs::copy(&src, &dst).map_err(|e| format!("export failed: {e}"))?;
+    Ok(dst.display().to_string())
+}
+
 #[tauri::command]
 fn open_settings(app: AppHandle) -> Result<(), String> {
     show_settings(&app);
@@ -698,6 +729,8 @@ pub fn run() {
             save_settings,
             get_stats,
             clear_user_dict,
+            list_user_words,
+            export_user_dict,
             open_settings
         ])
         .run(tauri::generate_context!())

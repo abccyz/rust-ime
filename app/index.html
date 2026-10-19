@@ -6,11 +6,11 @@
     <title>rust-ime</title>
     <style>
       :root {
-        --bg: rgba(20, 22, 28, 0.92);
-        --fg: #f5f6f8;
-        --muted: #9aa0aa;
-        --accent: #4f8cff;
-        --border: rgba(255, 255, 255, 0.08);
+        --bg: #161a20;
+        --fg: #e0e0e0;
+        --muted: #9aa0a8;
+        --accent: #d4a853;
+        --border: #262b33;
       }
       html, body {
         margin: 0; padding: 0;
@@ -18,7 +18,7 @@
         overflow: hidden;
         /* Opaque background: the desktop has no compositor, so an ARGB
            transparent window would not render reliably. */
-        background: #1e2028;
+        background: #161a20;
         font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
         color: var(--fg);
         user-select: none;
@@ -56,9 +56,10 @@
       }
       .cand:hover { background: rgba(255, 255, 255, 0.10); }
       .cand.selected {
-        background: var(--accent);
-        border-color: var(--accent);
-        color: #fff;
+        background: linear-gradient(180deg, rgba(212,168,83,.94), rgba(193,146,47,.88));
+        border-color: rgba(212,168,83,.85);
+        color: #1a1408;
+        font-weight: 600;
       }
       .cand .idx {
         flex: 0 0 auto;
@@ -68,7 +69,7 @@
       .cand .py {
         flex: 0 0 auto; font-size: 11px; color: var(--muted);
       }
-      .cand.selected .py, .cand.selected .idx { color: rgba(255, 255, 255, 0.75); }
+      .cand.selected .py, .cand.selected .idx { color: rgba(26, 20, 8, 0.62); }
       #hint {
         font-size: 11px; color: var(--muted);
         display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -172,10 +173,10 @@
           root.style.setProperty('--border', 'rgba(0,0,0,0.10)');
           document.body.style.background = '#f4f6fb';
         } else {
-          root.style.setProperty('--fg', '#f5f6f8');
-          root.style.setProperty('--muted', '#9aa0aa');
-          root.style.setProperty('--border', 'rgba(255,255,255,0.08)');
-          document.body.style.background = '#1e2028';
+          root.style.setProperty('--fg', '#e0e0e0');
+          root.style.setProperty('--muted', '#9aa0a8');
+          root.style.setProperty('--border', '#262b33');
+          document.body.style.background = '#161a20';
         }
         candEl.style.fontSize = (s.font_size || 16) + 'px';
       }

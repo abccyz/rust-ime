@@ -1,329 +1,621 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>rust-ime 设置</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>rust-ime 设置中心</title>
 <style>
-  :root {
-    --bg: #0f1115;
-    --panel: #171a21;
-    --panel-2: #1d212b;
-    --border: rgba(255,255,255,0.07);
-    --text: #e8eaf0;
-    --muted: #8b93a7;
-    --accent: #4f8cff;
-    --accent-dim: rgba(79,140,255,0.14);
-    --ok: #35c47a;
-    --danger: #ff6b6b;
-    --radius: 12px;
+  :root{
+    --accent:#d4a853; --accent-2:#4fd1c5;
+    --bg:#0c0e12; --surface:#161a20; --surface-2:#1c2129;
+    --line:#262b33; --line-soft:rgba(38,43,51,.7);
+    --text:#e0e0e0; --text-2:#9aa0a8; --text-3:#a8aeb6;
+    --green:#4ecb8f; --red:#e05c5c; --blue:#5b9dff; --violet:#9b8cff;
+    --sp-xs:4px; --sp-sm:8px; --sp-md:16px; --sp-lg:24px; --sp-xl:48px;
+    --r-4:4px; --r-8:8px; --r-12:12px;
+    --shadow-1:0 1px 2px rgba(0,0,0,.45);
+    --shadow-2:0 10px 26px -18px rgba(0,0,0,.95);
+    --panel-grad:linear-gradient(180deg,#1a1f26 0%,#161a20 58%,#14181e 100%);
+    --inset:inset 0 1px 0 rgba(255,255,255,.035);
   }
-  * { box-sizing: border-box; }
-  html, body {
-    margin: 0; height: 100%;
-    background: var(--bg); color: var(--text);
-    font-family: -apple-system, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
-    font-size: 14px;
-    overflow: hidden;
-    user-select: none;
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  html{background:var(--bg)}
+  body{
+    background-color:var(--bg);
+    background-image:
+      radial-gradient(720px 260px at 16% -8%, rgba(212,168,83,.09), transparent 70%),
+      radial-gradient(640px 240px at 90% -6%, rgba(79,209,197,.055), transparent 72%);
+    background-repeat:no-repeat;
+    color:var(--text);
+    font-family:Inter,system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    font-size:14px;line-height:1.45;
+    -webkit-font-smoothing:antialiased;
+    overflow:hidden;
   }
-  #app { display: flex; height: 100%; }
+  button{font-family:inherit;color:inherit;background:none;border:0;cursor:pointer}
+  input{font-family:inherit}
+  svg{display:block}
+  :focus-visible{outline:2px solid rgba(212,168,83,.7);outline-offset:2px;border-radius:6px}
+  .muted{color:var(--text-3);font-size:12px}
+  .tnum{font-variant-numeric:tabular-nums}
+  [disabled],[aria-disabled="true"]{opacity:.45;pointer-events:none}
 
-  /* ── Sidebar ─────────────────────────────────────────── */
-  aside {
-    width: 210px; flex: 0 0 210px;
-    background: var(--panel);
-    border-right: 1px solid var(--border);
-    display: flex; flex-direction: column;
-    padding: 18px 12px;
+  /* ── top bar ── */
+  .topbar{
+    height:58px;display:flex;align-items:center;gap:16px;padding:0 20px;
+    background:rgba(12,14,18,.92);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
   }
-  .brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 20px; }
-  .logo {
-    width: 32px; height: 32px; border-radius: 9px;
-    overflow: hidden;
-    display: flex; align-items: center; justify-content: center;
+  .brand{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+  .brand-mark{
+    width:30px;height:30px;border-radius:8px;overflow:hidden;
+    box-shadow:0 4px 14px -6px rgba(212,168,83,.8), inset 0 1px 0 rgba(255,255,255,.4);
   }
-  .logo img { width: 100%; height: 100%; display: block; }
-  .brand .name { font-weight: 600; font-size: 15px; letter-spacing: .3px; }
-  .brand .ver { font-size: 11px; color: var(--muted); }
-  nav { display: flex; flex-direction: column; gap: 4px; }
-  nav button {
-    all: unset; cursor: pointer;
-    display: flex; align-items: center; gap: 10px;
-    padding: 10px 12px; border-radius: 9px;
-    color: var(--muted); font-size: 13.5px;
-    transition: background .15s, color .15s;
+  .brand-mark img{width:100%;height:100%;display:block}
+  .brand-text{display:flex;flex-direction:column;line-height:1.2}
+  .brand-text strong{font-size:13.5px;font-weight:600}
+  .brand-text span{font-size:10.5px;color:var(--text-3)}
+  .search{position:relative;flex:0 1 360px;display:flex;align-items:center}
+  .search svg{position:absolute;left:11px;color:var(--text-2)}
+  .search input{
+    width:100%;height:33px;padding:0 56px 0 33px;
+    background:#12161b;border:1px solid var(--line);border-radius:var(--r-8);
+    color:var(--text);font-size:12.5px;transition:border-color .16s, box-shadow .16s, background .16s;
   }
-  nav button .ico { width: 16px; text-align: center; opacity: .9; }
-  nav button:hover { background: rgba(255,255,255,0.04); color: var(--text); }
-  nav button.active { background: var(--accent-dim); color: var(--accent); }
-  .sidebar-foot { margin-top: auto; padding: 10px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+  .search input::placeholder{color:#6f757e}
+  .search input:focus{outline:none;border-color:rgba(212,168,83,.65);background:#151a20;box-shadow:0 0 0 3px rgba(212,168,83,.12)}
+  .search kbd{position:absolute;right:9px;font-size:10px;color:var(--text-3);border:1px solid var(--line);border-radius:var(--r-4);padding:1px 5px;background:rgba(255,255,255,.03)}
+  .top-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+  .chip{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 10px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.022);font-size:11.5px;color:var(--text-2);white-space:nowrap}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--text-2);flex:0 0 auto}
+  .dot.green{background:var(--green);box-shadow:0 0 0 3px rgba(78,203,143,.13)}
+  .dot.gold{background:var(--accent);box-shadow:0 0 0 3px rgba(212,168,83,.14)}
+  .avatar{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:linear-gradient(160deg,#2a313a,#1b2027);border:1px solid #333a44;font-size:11.5px;font-weight:600;color:#dfe3e8}
 
-  /* ── Content ─────────────────────────────────────────── */
-  main { flex: 1; overflow-y: auto; padding: 26px 34px 40px; }
-  main::-webkit-scrollbar { width: 8px; }
-  main::-webkit-scrollbar-thumb { background: rgba(255,255,255,.09); border-radius: 4px; }
-  section { display: none; max-width: 700px; }
-  section.active { display: block; animation: fade .18s ease; }
-  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  /* ── layout ── */
+  .layout{display:grid;grid-template-columns:206px minmax(0,1fr);height:calc(100% - 58px)}
+  .sidebar{
+    border-right:1px solid var(--line);padding:14px 10px 14px;
+    display:flex;flex-direction:column;gap:4px;overflow-y:auto;
+    background:linear-gradient(180deg,rgba(255,255,255,.014),transparent 40%);
+  }
+  .nav-label{font-size:10px;letter-spacing:.14em;color:#767c85;padding:4px 10px 6px;text-transform:uppercase}
+  .nav-item{
+    display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border-radius:var(--r-8);
+    font-size:12.5px;color:var(--text-3);text-align:left;border:1px solid transparent;position:relative;
+    transition:background .16s, color .16s, border-color .16s;
+  }
+  .nav-item svg{color:#8b9199;flex:0 0 auto;transition:color .16s}
+  .nav-item span.lbl{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nav-item:hover{background:rgba(255,255,255,.045);color:#e8eaee}
+  .nav-item.active{
+    background:linear-gradient(90deg,rgba(212,168,83,.16),rgba(212,168,83,.03));
+    border-color:rgba(212,168,83,.26);color:#f1e4c8;font-weight:600;
+  }
+  .nav-item.active svg{color:var(--accent)}
+  .nav-item.active::before{content:"";position:absolute;left:-10px;top:7px;bottom:7px;width:2px;border-radius:0 2px 2px 0;background:var(--accent);box-shadow:0 0 12px rgba(212,168,83,.7)}
+  .side-tip{margin-top:auto;border:1px solid var(--line);border-radius:var(--r-12);background:linear-gradient(180deg,rgba(79,209,197,.07),rgba(255,255,255,.012));padding:11px;display:flex;flex-direction:column;gap:5px}
+  .side-tip .st-head{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#dfe3e8}
+  .side-tip .st-head svg{color:var(--accent-2)}
+  .side-tip p{font-size:11px;color:var(--text-3);line-height:1.5}
 
-  h1 { font-size: 21px; margin: 0 0 6px; font-weight: 600; }
-  .sub { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+  /* ── content ── */
+  .content{min-width:0;padding:18px 22px 24px;overflow-y:auto}
+  .content::-webkit-scrollbar{width:8px}
+  .content::-webkit-scrollbar-thumb{background:rgba(255,255,255,.09);border-radius:4px}
+  .page{display:none;flex-direction:column;gap:14px}
+  .page.active{display:flex;animation:fade .18s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+  .content-head{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;margin-bottom:2px}
+  .content-head h1{font-size:20px;font-weight:600;letter-spacing:-.01em;line-height:1.25}
+  .content-head p{font-size:12px;color:var(--text-3);margin-top:3px}
+  .head-status{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--text-3);white-space:nowrap}
 
-  .card {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 6px 18px;
-    margin-bottom: 16px;
-  }
-  .row {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 24px; padding: 15px 0;
-  }
-  .row + .row { border-top: 1px solid var(--border); }
-  .row .label { font-size: 14px; }
-  .row .desc { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.45; }
-  .row .control { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; }
+  .btn{height:32px;padding:0 13px;border-radius:var(--r-8);font-size:12px;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:rgba(255,255,255,.025);color:var(--text-3);transition:border-color .16s,color .16s,background .16s}
+  .btn:hover{border-color:#3a424d;color:#eceef1;background:rgba(255,255,255,.05)}
+  .btn.primary{background:linear-gradient(180deg,#e0bb71,#c1922f);border-color:rgba(212,168,83,.85);color:#191307;font-weight:600;box-shadow:0 6px 18px -10px rgba(212,168,83,.9), inset 0 1px 0 rgba(255,255,255,.35)}
+  .btn.primary:hover{background:linear-gradient(180deg,#ecc87d,#cd9c36);color:#191307}
+  .btn.danger{color:var(--red);border-color:rgba(224,92,92,.28)}
+  .btn.danger:hover{background:rgba(224,92,92,.08);border-color:rgba(224,92,92,.5)}
 
-  /* toggle */
-  .switch { position: relative; width: 44px; height: 24px; flex: 0 0 auto; cursor: pointer; }
-  .switch input { display: none; }
-  .switch span {
-    position: absolute; inset: 0; border-radius: 999px;
-    background: #2a2f3d; transition: background .18s;
-  }
-  .switch span::after {
-    content: ""; position: absolute; top: 3px; left: 3px;
-    width: 18px; height: 18px; border-radius: 50%;
-    background: #fff; transition: transform .18s;
-  }
-  .switch input:checked + span { background: var(--accent); }
-  .switch input:checked + span::after { transform: translateX(20px); }
+  .panel{background:var(--panel-grad);border:1px solid var(--line);border-radius:var(--r-12);box-shadow:var(--shadow-2),var(--inset);min-width:0;overflow:hidden}
+  .panel-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:12px 15px;border-bottom:1px solid var(--line)}
+  .panel-head h2{font-size:13.5px;font-weight:600}
+  .panel-head .sub{font-size:11px;color:var(--text-3);margin-top:2px}
+  .panel-meta{font-size:10.5px;color:var(--text-3);white-space:nowrap;padding:2px 8px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.022)}
 
-  /* slider */
-  input[type=range] {
-    -webkit-appearance: none; width: 180px; height: 4px;
-    background: #2a2f3d; border-radius: 2px; outline: none;
-  }
-  input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 16px; height: 16px;
-    border-radius: 50%; background: var(--accent);
-    box-shadow: 0 0 0 4px rgba(79,140,255,.15); cursor: pointer;
-  }
-  .num {
-    min-width: 34px; text-align: center; font-variant-numeric: tabular-nums;
-    color: var(--accent); font-weight: 600; font-size: 13px;
-  }
+  .statline{display:flex;align-items:center;flex-wrap:wrap;gap:9px;padding:10px 14px;border:1px solid var(--line);border-radius:var(--r-8);background:#13171d;font-size:12px;color:var(--text-2)}
+  .sl-item{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  .sl-sep{width:1px;height:12px;background:var(--line);margin:0 2px}
+  .sl-link{font-size:12px;color:var(--text-2);padding:0;border-radius:var(--r-4);white-space:nowrap;transition:color .16s}
+  .sl-link:hover{color:var(--accent)}
 
-  /* segmented */
-  .seg { display: flex; background: #222734; border-radius: 9px; padding: 3px; gap: 2px; }
-  .seg button {
-    all: unset; cursor: pointer; padding: 6px 14px; border-radius: 7px;
-    font-size: 12.5px; color: var(--muted); transition: background .15s, color .15s;
-  }
-  .seg button.active { background: var(--panel-2); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+  .lite-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:14px;align-items:start}
+  .lite-col{display:flex;flex-direction:column;gap:14px;min-width:0}
 
-  /* buttons */
-  .btn {
-    all: unset; cursor: pointer; padding: 8px 16px; border-radius: 8px;
-    font-size: 13px; border: 1px solid var(--border);
-    background: var(--panel-2); color: var(--text);
-    transition: background .15s, border-color .15s;
-  }
-  .btn:hover { background: #262b38; }
-  .btn.danger { color: var(--danger); border-color: rgba(255,107,107,.25); }
-  .btn.danger:hover { background: rgba(255,107,107,.08); }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
-  .btn.primary:hover { filter: brightness(1.08); }
+  .lrow{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:11px 15px;border-bottom:1px solid var(--line-soft);min-width:0}
+  .lrow:last-child{border-bottom:0}
+  .lrow-t{min-width:0}
+  .lrow-l{font-size:12.5px;color:#e4e6e9;padding:0;text-align:left;transition:color .16s}
+  .lrow-l:hover{color:var(--accent)}
+  .lrow-h{font-size:11px;color:var(--text-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lrow-c{display:flex;align-items:center;gap:10px;flex:0 0 auto}
+
+  .lstep{display:flex;align-items:center;gap:8px}
+  .lstep button{width:25px;height:25px;border-radius:var(--r-8);border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--text-2);font-size:14px;line-height:1;display:grid;place-items:center;transition:border-color .16s,color .16s,background .16s}
+  .lstep button:hover{border-color:rgba(212,168,83,.5);color:var(--accent);background:rgba(212,168,83,.1)}
+  .lstep .val{min-width:32px;text-align:center;font-size:14.5px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+
+  .switch{width:36px;height:21px;border-radius:999px;background:#242a32;border:1px solid var(--line);position:relative;flex:0 0 auto;transition:background .18s,border-color .18s;cursor:pointer;display:inline-block}
+  .switch::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#cfd4da;transition:left .18s,background .18s}
+  .switch.on{background:linear-gradient(180deg,rgba(212,168,83,.92),rgba(193,146,47,.85));border-color:rgba(212,168,83,.7);box-shadow:0 0 16px -4px rgba(212,168,83,.6)}
+  .switch.on::after{left:17px;background:#1a1408}
+
+  .seg{display:flex;border:1px solid var(--line);border-radius:var(--r-8);overflow:hidden;background:rgba(255,255,255,.02)}
+  .seg span{flex:1;text-align:center;font-size:11px;padding:5px 10px;color:var(--text-3);cursor:pointer;transition:all .16s;border-right:1px solid var(--line);white-space:nowrap}
+  .seg span:last-child{border-right:0}
+  .seg span:hover{background:rgba(255,255,255,.05);color:#e8eaee}
+  .seg span.on{background:rgba(212,168,83,.16);color:#f0e0bd;font-weight:600}
+  .seg.lseg{width:170px;flex:0 0 170px}
+
+  .lsw-row{display:flex;gap:7px}
+  .lsw{width:32px;height:23px;border-radius:6px;border:1px solid var(--line);position:relative;cursor:pointer;transition:border-color .16s,box-shadow .16s}
+  .lsw:hover{border-color:#414a55}
+  .lsw.on{border-color:rgba(212,168,83,.8);box-shadow:0 0 0 2px rgba(212,168,83,.16)}
+  .lsw.s1{background:linear-gradient(150deg,#20262e,#12161b)}
+  .lsw.s2{background:linear-gradient(150deg,#e6e8ea,#c9cdd2)}
+
+  .ldiff{list-style:none}
+  .ldiff li{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:8px 15px;border-bottom:1px solid var(--line-soft);font-size:11.5px;color:var(--text-3)}
+  .ldiff li:last-child{border-bottom:0}
+  .ldiff .l-t{font-size:12px;color:#dfe3e8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ldiff .l-v{font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ldiff .l-v em{font-style:normal;color:#e6c68a}
+
+  .lnav{display:flex;flex-direction:column;padding:4px 0}
+  .lnav button{display:flex;align-items:center;gap:10px;width:100%;padding:8px 15px;font-size:12px;color:var(--text-2);text-align:left;transition:background .16s,color .16s}
+  .lnav button:hover{background:rgba(255,255,255,.03);color:var(--text)}
+  .lnav button span{margin-left:auto;font-size:10.5px;color:#6f757e;font-variant-numeric:tabular-nums;white-space:nowrap}
+
+  .footbar{display:flex;align-items:center;gap:14px;padding:10px 14px;border:1px solid var(--line);border-radius:var(--r-12);background:linear-gradient(180deg,rgba(255,255,255,.026),rgba(255,255,255,.012));box-shadow:var(--inset);margin-top:2px}
+  .foot-left{display:flex;align-items:center;gap:9px;min-width:0}
+  .ver-badge{font-size:11px;font-weight:600;padding:2px 8px;border-radius:var(--r-4);background:rgba(212,168,83,.13);border:1px solid rgba(212,168,83,.3);color:#eddbb4;font-variant-numeric:tabular-nums}
+  .foot-left .txt{font-size:11.5px;color:var(--text-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .foot-links{margin-left:auto;display:flex;align-items:center;gap:4px}
+  .foot-links button{font-size:11.5px;color:var(--text-3);padding:4px 8px;border-radius:var(--r-4);transition:background .16s,color .16s}
+  .foot-links button:hover{background:rgba(255,255,255,.055);color:#eceef1}
+
+  /* tables */
+  table{width:100%;border-collapse:collapse;table-layout:fixed}
+  thead th{font-size:10.5px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:#828892;text-align:left;padding:8px 15px;background:rgba(255,255,255,.016);border-bottom:1px solid var(--line)}
+  tbody td{padding:9px 15px;font-size:12px;border-bottom:1px solid var(--line-soft);vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  tbody tr:last-child td{border-bottom:0}
+  tbody tr:hover{background:rgba(212,168,83,.05)}
+  .tag{display:inline-block;font-size:10.5px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--text-3)}
+  .tag.ok{color:#96e7c0;border-color:rgba(78,203,143,.3);background:rgba(78,203,143,.1)}
+  .tag.off{color:#9aa0a8}
+
+  /* theme cards */
+  .theme-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:13px}
+  .theme-card{border:1px solid var(--line);border-radius:10px;overflow:hidden;cursor:pointer;transition:border-color .16s,box-shadow .16s;background:#12161b}
+  .theme-card:hover{border-color:#414a55}
+  .theme-card.on{border-color:rgba(212,168,83,.85);box-shadow:0 0 0 2px rgba(212,168,83,.16)}
+  .theme-swatch{height:74px;position:relative}
+  .theme-swatch.dark{background:linear-gradient(160deg,#1a1f26,#0d1014)}
+  .theme-swatch.light{background:linear-gradient(160deg,#f2f4f7,#dfe3e8)}
+  .theme-swatch::after{content:"";position:absolute;left:12px;top:14px;right:12px;height:16px;border-radius:5px;background:rgba(212,168,83,.55)}
+  .theme-swatch::before{content:"";position:absolute;left:12px;top:38px;width:60%;height:10px;border-radius:4px;background:rgba(255,255,255,.16)}
+  .theme-swatch.light::before{background:rgba(0,0,0,.12)}
+  .theme-name{display:flex;align-items:center;justify-content:space-between;padding:9px 12px;font-size:12px}
+  .theme-name .badge{font-size:10px;color:var(--accent)}
 
   /* preview */
-  .preview {
-    margin-top: 8px; background: #12151c; border: 1px solid var(--border);
-    border-radius: 10px; padding: 10px 12px;
-  }
-  .preview .preedit { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
-  .preview .cand {
-    display: flex; align-items: center; gap: 10px;
-    padding: 4px 8px; border-radius: 6px; font-size: 15px;
-  }
-  .preview .cand.sel { background: var(--accent); color: #fff; }
-  .preview .cand .n { font-size: 10px; opacity: .65; width: 10px; }
+  .preview-wrap{padding:13px}
+  .preview{background:#12151c;border:1px solid var(--line);border-radius:10px;padding:9px 11px}
+  .preview .preedit{color:var(--text-3);font-size:11.5px;margin-bottom:5px}
+  .preview .cand{display:flex;align-items:center;gap:9px;padding:4px 8px;border-radius:6px;font-size:14px}
+  .preview .cand.sel{background:linear-gradient(180deg,rgba(212,168,83,.92),rgba(193,146,47,.85));color:#1a1408;font-weight:600}
+  .preview .cand .n{font-size:10px;opacity:.65;width:10px}
 
-  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
-  .stat {
-    background: var(--panel); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 16px;
-  }
-  .stat .v { font-size: 22px; font-weight: 650; letter-spacing: .3px; }
-  .stat .k { font-size: 11.5px; color: var(--muted); margin-top: 5px; }
+  .range{-webkit-appearance:none;width:170px;height:4px;background:#2a2f3d;border-radius:2px;outline:none}
+  .range::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;background:linear-gradient(180deg,#e6c47c,#c1902f);box-shadow:0 0 0 4px rgba(212,168,83,.15);cursor:pointer}
 
-  .kv { display: flex; justify-content: space-between; padding: 11px 0; font-size: 13px; }
-  .kv + .kv { border-top: 1px solid var(--border); }
-  .kv .k { color: var(--muted); }
-  .kv .v { font-variant-numeric: tabular-nums; }
+  .empty{padding:26px 16px;text-align:center;color:var(--text-3);font-size:12px;line-height:1.7}
+  .empty strong{display:block;color:#dfe3e8;font-size:13px;font-weight:600;margin-bottom:4px}
 
-  .toast {
-    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(12px);
-    background: #232a38; border: 1px solid var(--border); color: var(--text);
-    padding: 9px 18px; border-radius: 9px; font-size: 13px;
-    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
-  }
-  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .stat-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1px solid var(--line);border-radius:var(--r-12);overflow:hidden;background:var(--panel-grad)}
+  .stat-cell{padding:12px 14px;display:flex;flex-direction:column;gap:5px;min-width:0}
+  .stat-cell+.stat-cell{border-left:1px solid var(--line)}
+  .stat-cell .k{font-size:10.5px;color:var(--text-3);letter-spacing:.03em}
+  .stat-cell .v{font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .stat-cell .v small{font-size:11px;font-weight:400;color:var(--text-3);margin-left:3px}
+
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%) translateY(10px);background:#232a38;border:1px solid var(--line);color:var(--text);padding:8px 16px;border-radius:9px;font-size:12px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;z-index:50}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 </style>
 </head>
 <body>
-<div id="app">
-  <aside>
-    <div class="brand">
-      <div class="logo"><img src="logo.png" alt="rust-ime" /></div>
-      <div>
-        <div class="name">rust-ime</div>
-        <div class="ver" id="brandVer">输入法设置</div>
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark"><img src="logo.png" alt="rust-ime" /></div>
+    <div class="brand-text"><strong>rust-ime</strong><span id="brandVer">设置中心 · v0.1.0</span></div>
+  </div>
+  <div class="search">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M16.5 16.5L21 21"/></svg>
+    <input id="search" type="text" aria-label="搜索设置项" placeholder="搜索设置项，如「候选词数量」" />
+    <kbd>Ctrl K</kbd>
+  </div>
+  <div class="top-right">
+    <span class="chip"><span class="dot gold"></span>中文 · 全拼</span>
+    <span class="chip"><span class="dot green"></span>本地运行</span>
+    <div class="avatar" title="rust-ime">R</div>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="nav-label">设置</div>
+    <button class="nav-item active" data-page="overview">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.4"/><circle cx="9" cy="17" r="2.4"/></svg>
+      <span class="lbl">设置中心</span>
+    </button>
+    <button class="nav-item" data-page="input">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>
+      <span class="lbl">输入与候选</span>
+    </button>
+    <button class="nav-item" data-page="appearance">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 0 18c1.2 0 1.8-.9 1.8-1.9 0-1.5 1-2.1 2.2-2.1h1.2A3.8 3.8 0 0 0 21 13.2C21 7.6 17 3 12 3Z"/><circle cx="8" cy="10" r="1.1"/><circle cx="12" cy="7.6" r="1.1"/><circle cx="16" cy="10" r="1.1"/></svg>
+      <span class="lbl">外观与皮肤</span>
+    </button>
+    <button class="nav-item" data-page="dict">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5Z"/><path d="M4 20.5V5.5"/><path d="M8 7.5h7M8 11h5"/></svg>
+      <span class="lbl">词库与自学习</span>
+    </button>
+    <button class="nav-item" data-page="shortcuts">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6v12a3 3 0 1 0 3-3H6a3 3 0 1 0 3 3V6a3 3 0 1 0-3 3h12a3 3 0 1 0-3-3"/></svg>
+      <span class="lbl">快捷键与手势</span>
+    </button>
+    <button class="nav-item" data-page="account">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 0 0 .4-8.98A6 6 0 0 0 6.2 9.3 4.5 4.5 0 0 0 6.5 19Z"/></svg>
+      <span class="lbl">账户与云同步</span>
+    </button>
+    <button class="nav-item" data-page="about">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.8h.01"/></svg>
+      <span class="lbl">关于与更新</span>
+    </button>
+    <div class="side-tip">
+      <div class="st-head">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 0 0 .4-8.98A6 6 0 0 0 6.2 9.3 4.5 4.5 0 0 0 6.5 19Z"/><path d="M9.5 14.5 11.5 16.5 15 12.8"/></svg>
+        <span>本地运行</span>
       </div>
-    </div>
-    <nav>
-      <button data-tab="general" class="active"><span class="ico">⚙</span>通用</button>
-      <button data-tab="appearance"><span class="ico">◐</span>外观</button>
-      <button data-tab="dict"><span class="ico">▤</span>词库</button>
-      <button data-tab="about"><span class="ico">ⓘ</span>关于</button>
-    </nav>
-    <div class="sidebar-foot">
-      纯 Rust 拼音引擎<br/>fcitx5 / X11 接入
+      <p>所有输入与学习数据都保存在本机，不会上传。</p>
     </div>
   </aside>
 
-  <main>
-    <!-- 通用 -->
-    <section id="general" class="active">
-      <h1>通用</h1>
-      <p class="sub">输入行为与启动选项</p>
-
-      <div class="card">
-        <div class="row">
-          <div>
-            <div class="label">候选数量</div>
-            <div class="desc">竖排列表中最多显示的候选词数量</div>
-          </div>
-          <div class="control">
-            <input id="candidateCount" type="range" min="5" max="10" step="1" />
-            <span class="num" id="candidateCountVal">10</span>
-          </div>
-        </div>
-
-        <div class="row">
-          <div>
-            <div class="label">智能预测</div>
-            <div class="desc">提交词语后，根据上下文预测下一个词</div>
-          </div>
-          <div class="control">
-            <label class="switch"><input id="prediction" type="checkbox" /><span></span></label>
-          </div>
-        </div>
-
-        <div class="row">
-          <div>
-            <div class="label">用户词库学习</div>
-            <div class="desc">记住你选择的词语，提高后续排序</div>
-          </div>
-          <div class="control">
-            <label class="switch"><input id="learn" type="checkbox" /><span></span></label>
-          </div>
-        </div>
-
-        <div class="row">
-          <div>
-            <div class="label">开机自启</div>
-            <div class="desc">登录桌面后自动启动输入法</div>
-          </div>
-          <div class="control">
-            <label class="switch"><input id="autostart" type="checkbox" /><span></span></label>
-          </div>
-        </div>
+  <main class="content">
+    <!-- ═══ 设置中心 ═══ -->
+    <section class="page active" id="overview">
+      <div class="content-head">
+        <div><h1>设置中心</h1><p>只留最常用的几项，改完立即生效</p></div>
+        <div class="head-status"><span class="dot green"></span>本地运行</div>
       </div>
-    </section>
 
-    <!-- 外观 -->
-    <section id="appearance">
-      <h1>外观</h1>
-      <p class="sub">候选窗口的视觉样式</p>
+      <section class="statline">
+        <span class="sl-item"><span class="dot gold"></span>rust-ime 拼音 · 全拼</span>
+        <span class="sl-sep"></span>
+        <button class="sl-link" data-goto="appearance" id="statTheme">深色</button>
+        <span class="sl-sep"></span>
+        <button class="sl-link" data-goto="dict" id="statUserWords">用户词库 0 条</button>
+        <span class="sl-sep"></span>
+        <span class="sl-item muted" id="statSysWords">系统词库 —</span>
+      </section>
 
-      <div class="card">
-        <div class="row">
-          <div>
-            <div class="label">主题</div>
-            <div class="desc">候选窗口的配色方案</div>
-          </div>
-          <div class="control">
-            <div class="seg" id="themeSeg">
-              <button data-theme="dark" class="active">深色</button>
-              <button data-theme="light">浅色</button>
+      <div class="lite-grid">
+        <section class="panel">
+          <div class="panel-head"><h2>常用设置</h2><span class="panel-meta">立即生效</span></div>
+
+          <article class="lrow" data-search="候选词数量">
+            <div class="lrow-t"><div class="lrow-l">候选词数量</div><div class="lrow-h">竖排显示 · 最多 10 词</div></div>
+            <div class="lrow-c"><div class="lstep">
+              <button data-step="candidate_count" data-delta="-1" aria-label="减少">−</button>
+              <span class="val tnum" id="candidateCountVal">10</span>
+              <button data-step="candidate_count" data-delta="1" aria-label="增加">+</button>
+            </div></div>
+          </article>
+
+          <article class="lrow" data-search="中英切换键 快捷键">
+            <div class="lrow-t"><div class="lrow-l">中英切换键</div><div class="lrow-h">当前输入状态：中文</div></div>
+            <div class="lrow-c"><div class="seg lseg">
+              <span class="on">Ctrl+Space</span><span aria-disabled="true">Shift</span>
+            </div></div>
+          </article>
+
+          <article class="lrow" data-search="皮肤主题 外观">
+            <div class="lrow-t"><div class="lrow-l">皮肤主题</div><div class="lrow-h" id="themeHint">深色 · 琥珀</div></div>
+            <div class="lrow-c"><div class="lsw-row">
+              <span class="lsw s1 on" data-theme="dark" title="深色 · 琥珀"></span>
+              <span class="lsw s2" data-theme="light" title="浅色 · 雾"></span>
+            </div></div>
+          </article>
+
+          <article class="lrow" data-search="自学习 词库">
+            <div class="lrow-t"><div class="lrow-l">自学习</div><div class="lrow-h">记住你选择的词语，提高后续排序</div></div>
+            <div class="lrow-c"><span class="switch on" id="learnSwitch" role="switch" tabindex="0"></span></div>
+          </article>
+
+          <article class="lrow" data-search="智能预测 联想">
+            <div class="lrow-t"><div class="lrow-l">智能预测</div><div class="lrow-h">提交词语后，根据上下文预测下一个词</div></div>
+            <div class="lrow-c"><span class="switch on" id="predictionSwitch" role="switch" tabindex="0"></span></div>
+          </article>
+
+          <article class="lrow" data-search="开机自启">
+            <div class="lrow-t"><div class="lrow-l">开机自启</div><div class="lrow-h">登录桌面后自动启动输入法</div></div>
+            <div class="lrow-c"><span class="switch on" id="autostartSwitch" role="switch" tabindex="0"></span></div>
+          </article>
+        </section>
+
+        <div class="lite-col">
+          <section class="panel">
+            <div class="panel-head"><h2>当前状态</h2></div>
+            <ul class="ldiff">
+              <li><span class="l-t">引擎</span><span class="l-v">ime-engine</span></li>
+              <li><span class="l-t">候选上限</span><span class="l-v" id="statusCandidateMax">10</span></li>
+              <li><span class="l-t">系统词库</span><span class="l-v" id="statusSysWords">—</span></li>
+              <li><span class="l-t">用户词库</span><span class="l-v" id="statusUserWords">0</span></li>
+            </ul>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head"><h2>其他设置</h2></div>
+            <div class="lnav">
+              <button data-goto="dict">词库与自学习<span id="navDictCount">0</span></button>
+              <button data-goto="shortcuts">快捷键与手势<span>4 项</span></button>
+              <button data-goto="account">账户与云同步<span>未启用</span></button>
+              <button data-goto="about">关于与更新<span id="navVer">v0.1.0</span></button>
             </div>
-          </div>
-        </div>
-
-        <div class="row">
-          <div>
-            <div class="label">候选字号</div>
-            <div class="desc">候选词的显示大小</div>
-          </div>
-          <div class="control">
-            <input id="fontSize" type="range" min="13" max="20" step="1" />
-            <span class="num" id="fontSizeVal">16</span>
-          </div>
+          </section>
         </div>
       </div>
 
-      <div class="card">
-        <div class="row" style="flex-direction: column; align-items: stretch; gap: 10px;">
-          <div>
-            <div class="label">预览</div>
-            <div class="desc">候选窗口效果（随设置实时变化）</div>
-          </div>
-          <div class="preview" id="preview">
-            <div class="preedit" id="prevPreedit">nihao</div>
-            <div class="cand sel" id="prevCand"><span class="n">1</span><span>你好</span></div>
-          </div>
+      <footer class="footbar">
+        <div class="foot-left">
+          <span class="ver-badge" id="footVer">v0.1.0</span>
+          <span class="txt" id="footMeta">纯 Rust 引擎 · 词库 —</span>
         </div>
-      </div>
+        <div class="foot-links">
+          <button data-goto="shortcuts">快捷键速查</button>
+          <button data-goto="about">检查更新</button>
+        </div>
+      </footer>
     </section>
 
-    <!-- 词库 -->
-    <section id="dict">
-      <h1>词库</h1>
-      <p class="sub">系统词库与用户学习数据</p>
+    <!-- ═══ 输入与候选 ═══ -->
+    <section class="page" id="input">
+      <div class="content-head"><div><h1>输入与候选</h1><p>输入方案、候选数量与预测</p></div>
+        <div class="head-actions"><button class="btn primary" id="saveInput">保存</button></div></div>
 
-      <div class="stat-grid">
-        <div class="stat"><div class="v" id="statDict">—</div><div class="k">系统词条</div></div>
-        <div class="stat"><div class="v" id="statUser">—</div><div class="k">用户词条</div></div>
-        <div class="stat"><div class="v" id="statCand">10</div><div class="k">候选上限</div></div>
-      </div>
-
-      <div class="card">
-        <div class="row">
-          <div>
-            <div class="label">用户词库文件</div>
-            <div class="desc" id="userDictPath">—</div>
-          </div>
-          <div class="control">
-            <button class="btn danger" id="clearUserDict">清空用户词库</button>
-          </div>
+      <section class="panel">
+        <div class="panel-head"><h2>输入方案</h2><span class="panel-meta">当前：全拼</span></div>
+        <div class="lrow" data-search="输入方案 全拼 双拼 九宫格">
+          <div class="lrow-t"><div class="lrow-l">方案</div><div class="lrow-h">双拼与九宫格将在后续版本提供</div></div>
+          <div class="lrow-c"><div class="seg" style="width:220px">
+            <span class="on">全拼</span><span aria-disabled="true">双拼</span><span aria-disabled="true">九宫格</span>
+          </div></div>
         </div>
-      </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>候选与预测</h2></div>
+        <article class="lrow" data-search="候选词数量">
+          <div class="lrow-t"><div class="lrow-l">候选词数量</div><div class="lrow-h">竖排显示，最多 10 个</div></div>
+          <div class="lrow-c"><div class="lstep">
+            <button data-step="candidate_count" data-delta="-1">−</button>
+            <span class="val tnum" id="inputCandidateVal">10</span>
+            <button data-step="candidate_count" data-delta="1">+</button>
+          </div></div>
+        </article>
+        <article class="lrow" data-search="智能预测">
+          <div class="lrow-t"><div class="lrow-l">智能预测</div><div class="lrow-h">基于上下文预测下一个词</div></div>
+          <div class="lrow-c"><span class="switch on" id="inputPrediction" role="switch" tabindex="0"></span></div>
+        </article>
+        <article class="lrow" data-search="候选字号 字体">
+          <div class="lrow-t"><div class="lrow-l">候选字号</div><div class="lrow-h">候选窗口的文字大小</div></div>
+          <div class="lrow-c"><input class="range" id="inputFontSize" type="range" min="13" max="20" step="1" /><span class="lval tnum" id="inputFontVal" style="min-width:24px;text-align:right;color:var(--accent);font-weight:600">16</span></div>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>标点与模糊音</h2><span class="panel-meta">即将支持</span></div>
+        <article class="lrow" data-search="中文标点"><div class="lrow-t"><div class="lrow-l">中文标点</div><div class="lrow-h">输入逗号句号时自动使用全角</div></div>
+          <div class="lrow-c"><span class="switch" aria-disabled="true"></span></div></article>
+        <article class="lrow" data-search="模糊音 zh ch"><div class="lrow-t"><div class="lrow-l">模糊音 zh / ch</div><div class="lrow-h">兼容方言发音</div></div>
+          <div class="lrow-c"><span class="switch" aria-disabled="true"></span></div></article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>云输入</h2><span class="panel-meta">即将支持</span></div>
+        <article class="lrow" data-search="云输入"><div class="lrow-t"><div class="lrow-l">云输入</div><div class="lrow-h">联网时补充热词与生僻词</div></div>
+          <div class="lrow-c"><span class="switch" aria-disabled="true"></span></div></article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>实时预览</h2></div>
+        <div class="preview-wrap"><div class="preview" id="inputPreview">
+          <div class="preedit">nihao</div>
+          <div class="cand sel"><span class="n">1</span><span>你好</span></div>
+          <div class="cand"><span class="n">2</span><span>你好。</span></div>
+        </div></div>
+      </section>
     </section>
 
-    <!-- 关于 -->
-    <section id="about">
-      <h1>关于</h1>
-      <p class="sub">rust-ime — 纯 Rust 拼音输入法</p>
+    <!-- ═══ 外观与皮肤 ═══ -->
+    <section class="page" id="appearance">
+      <div class="content-head"><div><h1>外观与皮肤</h1><p>主题、字号与候选窗口预览</p></div></div>
 
-      <div class="card">
-        <div class="kv"><span class="k">版本</span><span class="v" id="aboutVer">—</span></div>
-        <div class="kv"><span class="k">引擎</span><span class="v">ime-engine (Rust)</span></div>
-        <div class="kv"><span class="k">接入方式</span><span class="v">fcitx5 addon / X11 XRecord</span></div>
-        <div class="kv"><span class="k">候选窗</span><span class="v">Tauri 2 + WebKitGTK</span></div>
-        <div class="kv"><span class="k">词库</span><span class="v" id="aboutDict">—</span></div>
-      </div>
+      <section class="panel">
+        <div class="panel-head"><h2>皮肤主题</h2><span class="panel-meta" id="themeMeta">深色</span></div>
+        <div class="theme-grid">
+          <div class="theme-card on" data-theme="dark">
+            <div class="theme-swatch dark"></div>
+            <div class="theme-name"><span>深色 · 琥珀</span><span class="badge">当前</span></div>
+          </div>
+          <div class="theme-card" data-theme="light">
+            <div class="theme-swatch light"></div>
+            <div class="theme-name"><span>浅色 · 雾</span><span class="badge"></span></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>候选窗字体与字号</h2><span class="panel-meta" id="fontMeta">16 px</span></div>
+        <article class="lrow" data-search="候选字号">
+          <div class="lrow-t"><div class="lrow-l">字号</div><div class="lrow-h">13 – 20 px，实时生效</div></div>
+          <div class="lrow-c"><input class="range" id="fontSize" type="range" min="13" max="20" step="1" /><span class="tnum" id="fontVal" style="min-width:24px;text-align:right;color:var(--accent);font-weight:600">16</span></div>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>窗口样式</h2><span class="panel-meta">当前版本固定</span></div>
+        <article class="lrow"><div class="lrow-t"><div class="lrow-l">圆角</div><div class="lrow-h">候选窗固定 8 px 圆角</div></div>
+          <div class="lrow-c"><span class="tag">8 px</span></div></article>
+        <article class="lrow"><div class="lrow-t"><div class="lrow-l">透明度</div><div class="lrow-h">桌面无合成器时保持不透明</div></div>
+          <div class="lrow-c"><span class="tag">不透明</span></div></article>
+        <article class="lrow"><div class="lrow-t"><div class="lrow-l">动效</div><div class="lrow-h">候选窗口淡入</div></div>
+          <div class="lrow-c"><span class="tag ok">已启用</span></div></article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>实时预览</h2></div>
+        <div class="preview-wrap"><div class="preview" id="appearancePreview">
+          <div class="preedit">nihao</div>
+          <div class="cand sel"><span class="n">1</span><span>你好</span></div>
+          <div class="cand"><span class="n">2</span><span>你好。</span></div>
+        </div></div>
+      </section>
+    </section>
+
+    <!-- ═══ 词库与自学习 ═══ -->
+    <section class="page" id="dict">
+      <div class="content-head"><div><h1>词库与自学习</h1><p>系统词库与本地学习数据</p></div></div>
+
+      <section class="stat-grid">
+        <div class="stat-cell"><div class="k">系统词条</div><div class="v" id="kpiSys">—</div></div>
+        <div class="stat-cell"><div class="k">用户词条</div><div class="v" id="kpiUser">0</div></div>
+        <div class="stat-cell"><div class="k">候选上限</div><div class="v" id="kpiMax">10</div></div>
+        <div class="stat-cell"><div class="k">词库文件</div><div class="v" style="font-size:11px;font-weight:400"><span id="kpiPath" style="color:var(--text-3);overflow:hidden;text-overflow:ellipsis;display:block">—</span></div></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>用户词库</h2><span class="panel-meta" id="userWordsMeta">0 条</span></div>
+        <table>
+          <thead><tr><th style="width:58%">词语</th><th>词频</th></tr></thead>
+          <tbody id="userWordsBody"><tr><td colspan="2"><div class="empty"><strong>还没有学习记录</strong>提交候选词后会自动记录在这里</div></td></tr></tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>自学习</h2></div>
+        <article class="lrow" data-search="自学习">
+          <div class="lrow-t"><div class="lrow-l">启用自学习</div><div class="lrow-h">记录你选择的词语并调整排序</div></div>
+          <div class="lrow-c"><span class="switch on" id="dictLearn" role="switch" tabindex="0"></span></div>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>导入与导出</h2></div>
+        <article class="lrow" data-search="导出用户词库">
+          <div class="lrow-t"><div class="lrow-l">导出用户词库</div><div class="lrow-h">保存到主目录的文本文件</div></div>
+          <div class="lrow-c"><button class="btn" id="exportDict">导出</button></div>
+        </article>
+        <article class="lrow">
+          <div class="lrow-t"><div class="lrow-l">词库位置</div><div class="lrow-h" id="dictPath">—</div></div>
+        </article>
+      </section>
+
+      <section class="panel" style="border-color:rgba(224,92,92,.22)">
+        <div class="panel-head"><h2 style="color:#e8a0a0">危险操作</h2></div>
+        <article class="lrow">
+          <div class="lrow-t"><div class="lrow-l">清空用户词库</div><div class="lrow-h">删除全部学习记录，不可恢复</div></div>
+          <div class="lrow-c"><button class="btn danger" id="clearDict">清空</button></div>
+        </article>
+      </section>
+    </section>
+
+    <!-- ═══ 快捷键与手势 ═══ -->
+    <section class="page" id="shortcuts">
+      <div class="content-head"><div><h1>快捷键与手势</h1><p>当前版本已支持的按键</p></div></div>
+
+      <section class="panel">
+        <div class="panel-head"><h2>按键</h2><span class="panel-meta">4 项已启用</span></div>
+        <table>
+          <thead><tr><th style="width:34%">功能</th><th style="width:36%">按键</th><th>状态</th></tr></thead>
+          <tbody>
+            <tr><td>中英切换</td><td><span class="tag">Ctrl + Space</span></td><td><span class="tag ok">已启用</span></td></tr>
+            <tr><td>提交首选</td><td><span class="tag">空格 / 回车</span></td><td><span class="tag ok">已启用</span></td></tr>
+            <tr><td>选择候选</td><td><span class="tag">数字键 1 – 9</span></td><td><span class="tag ok">已启用</span></td></tr>
+            <tr><td>取消输入</td><td><span class="tag">Esc</span></td><td><span class="tag ok">已启用</span></td></tr>
+            <tr><td>移动候选</td><td><span class="tag">← →</span></td><td><span class="tag off">预留</span></td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>手势与自定义快捷键</h2><span class="panel-meta">即将支持</span></div>
+        <div class="empty"><strong>暂未支持</strong>手势操作与自定义快捷键将在后续版本提供</div>
+      </section>
+    </section>
+
+    <!-- ═══ 账户与云同步 ═══ -->
+    <section class="page" id="account">
+      <div class="content-head"><div><h1>账户与云同步</h1><p>多设备词库同步</p></div>
+        <div class="head-status">未启用</div></div>
+
+      <section class="panel">
+        <div class="empty" style="padding:40px 20px">
+          <strong>当前版本不含账户与云同步</strong>
+          rust-ime 完全本地运行，词库与学习记录只保存在本机。<br/>
+          云同步会在后续版本提供。
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>本地数据</h2></div>
+        <ul class="ldiff">
+          <li><span class="l-t">配置</span><span class="l-v">~/.config/rust-ime/config.json</span></li>
+          <li><span class="l-t">用户词库</span><span class="l-v" id="acctDictPath">—</span></li>
+          <li><span class="l-t">上传</span><span class="l-v"><em>从不</em></span></li>
+        </ul>
+      </section>
+    </section>
+
+    <!-- ═══ 关于与更新 ═══ -->
+    <section class="page" id="about">
+      <div class="content-head"><div><h1>关于与更新</h1><p>rust-ime — 纯 Rust 拼音输入法</p></div></div>
+
+      <section class="panel">
+        <div class="panel-head"><h2>版本信息</h2><span class="panel-meta" id="aboutVer">v0.1.0</span></div>
+        <ul class="ldiff">
+          <li><span class="l-t">引擎</span><span class="l-v">ime-engine (Rust)</span></li>
+          <li><span class="l-t">接入方式</span><span class="l-v">fcitx5 addon / X11 XRecord</span></li>
+          <li><span class="l-t">候选窗</span><span class="l-v">Tauri 2 + WebKitGTK</span></li>
+          <li><span class="l-t">词库</span><span class="l-v" id="aboutDict">—</span></li>
+          <li><span class="l-t">许可证</span><span class="l-v">MIT</span></li>
+        </ul>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>更新</h2><span class="panel-meta">离线</span></div>
+        <article class="lrow">
+          <div class="lrow-t"><div class="lrow-l">检查更新</div><div class="lrow-h">当前版本不包含在线更新</div></div>
+          <div class="lrow-c"><button class="btn" aria-disabled="true">检查</button></div>
+        </article>
+      </section>
+
+      <footer class="footbar">
+        <div class="foot-left"><span class="ver-badge" id="aboutFootVer">v0.1.0</span><span class="txt">纯 Rust 引擎 · 本地运行</span></div>
+        <div class="foot-links"><button data-goto="shortcuts">快捷键速查</button><button data-goto="dict">词库</button></div>
+      </footer>
     </section>
   </main>
 </div>
@@ -334,7 +626,6 @@ if (!window.__TAURI__) {
   document.body.innerHTML = '<div style="padding:24px;color:#ff6b6b">Tauri API 未注入</div>';
 } else {
 const { invoke } = window.__TAURI__.core;
-
 const $ = (id) => document.getElementById(id);
 const toastEl = $('toast');
 let toastTimer = null;
@@ -342,125 +633,165 @@ function toast(msg) {
   toastEl.textContent = msg;
   toastEl.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1600);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1500);
 }
 
-// ── Tabs ────────────────────────────────────────────────────────
-document.querySelectorAll('nav button').forEach((b) => {
-  b.addEventListener('click', () => {
-    document.querySelectorAll('nav button').forEach((x) => x.classList.remove('active'));
-    document.querySelectorAll('section').forEach((x) => x.classList.remove('active'));
-    b.classList.add('active');
-    $(b.dataset.tab).classList.add('active');
-  });
-});
+let settings = { candidate_count: 10, prediction: true, learn: true, autostart: true, theme: 'dark', font_size: 16 };
 
-// ── State ───────────────────────────────────────────────────────
-let settings = {
-  candidate_count: 10,
-  prediction: true,
-  learn: true,
-  autostart: true,
-  theme: 'dark',
-  font_size: 16,
-};
+/* ── navigation ── */
+function showPage(id) {
+  document.querySelectorAll('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.page === id));
+  document.querySelectorAll('.page').forEach((p) => p.classList.toggle('active', p.id === id));
+  document.querySelector('.content').scrollTop = 0;
+}
+document.querySelectorAll('.nav-item').forEach((b) => b.addEventListener('click', () => showPage(b.dataset.page)));
+document.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => showPage(b.dataset.goto)));
 
+/* ── painting ── */
 function paint() {
-  $('candidateCount').value = settings.candidate_count;
-  $('candidateCountVal').textContent = settings.candidate_count;
-  $('prediction').checked = settings.prediction;
-  $('learn').checked = settings.learn;
-  $('autostart').checked = settings.autostart;
-  $('fontSize').value = settings.font_size;
-  $('fontSizeVal').textContent = settings.font_size;
-  $('statCand').textContent = settings.candidate_count;
-  document.querySelectorAll('#themeSeg button').forEach((b) => {
-    b.classList.toggle('active', b.dataset.theme === settings.theme);
+  const c = settings.candidate_count;
+  ['candidateCountVal', 'inputCandidateVal', 'statusCandidateMax', 'kpiMax'].forEach((id) => { if ($(id)) $(id).textContent = c; });
+  ['learnSwitch', 'dictLearn'].forEach((id) => $(id) && $(id).classList.toggle('on', settings.learn));
+  ['predictionSwitch', 'inputPrediction'].forEach((id) => $(id) && $(id).classList.toggle('on', settings.prediction));
+  $('autostartSwitch').classList.toggle('on', settings.autostart);
+  ['fontSize', 'inputFontSize'].forEach((id) => { if ($(id)) $(id).value = settings.font_size; });
+  $('fontVal').textContent = settings.font_size;
+  $('inputFontVal').textContent = settings.font_size;
+  $('fontMeta').textContent = settings.font_size + ' px';
+  $('themeMeta').textContent = settings.theme === 'light' ? '浅色' : '深色';
+  $('themeHint').textContent = settings.theme === 'light' ? '浅色 · 雾' : '深色 · 琥珀';
+  $('statTheme').textContent = settings.theme === 'light' ? '浅色' : '深色';
+  document.querySelectorAll('[data-theme]').forEach((el) => {
+    el.classList.toggle('on', el.dataset.theme === settings.theme);
+    const badge = el.querySelector('.badge');
+    if (badge) badge.textContent = el.dataset.theme === settings.theme ? '当前' : '';
   });
   applyPreview();
 }
 
 function applyPreview() {
   const light = settings.theme === 'light';
-  const p = $('preview');
-  p.style.background = light ? '#f4f6fb' : '#12151c';
-  p.style.color = light ? '#1a1d24' : '#e8eaf0';
-  $('prevPreedit').style.color = light ? '#6b7280' : '#8b93a7';
-  const cand = $('prevCand');
-  cand.style.fontSize = settings.font_size + 'px';
-  if (light) {
-    cand.classList.remove('sel');
-    cand.style.background = '#4f8cff';
-    cand.style.color = '#fff';
-  }
+  document.querySelectorAll('.preedit, .cand').forEach((el) => {
+    if (light) {
+      el.style.color = el.classList.contains('sel') ? '#1a1408' : '#2a2f38';
+      if (!el.classList.contains('sel')) el.style.background = 'transparent';
+    } else {
+      el.style.color = '';
+    }
+  });
+  document.querySelectorAll('.cand').forEach((el) => { el.style.fontSize = settings.font_size + 'px'; });
+  document.querySelectorAll('.preview').forEach((el) => { el.style.background = light ? '#f4f6fb' : '#12151c'; });
 }
 
-async function save() {
+async function save(showToast) {
   try {
     await invoke('save_settings', { settings });
-    toast('已保存');
-  } catch (e) {
-    toast('保存失败: ' + e);
-  }
+    if (showToast) toast('已保存');
+  } catch (e) { toast('保存失败: ' + e); }
 }
 
-// ── Bindings ────────────────────────────────────────────────────
-$('candidateCount').addEventListener('input', (e) => {
-  settings.candidate_count = Number(e.target.value);
-  $('candidateCountVal').textContent = settings.candidate_count;
-  $('statCand').textContent = settings.candidate_count;
-  save();
+/* ── controls ── */
+document.querySelectorAll('[data-step]').forEach((b) => b.addEventListener('click', () => {
+  const key = b.dataset.step;
+  const delta = Number(b.dataset.delta);
+  settings[key] = Math.min(10, Math.max(5, settings[key] + delta));
+  paint();
+  save(true);
+}));
+
+function bindSwitch(id, key) {
+  const el = $(id);
+  if (!el) return;
+  const toggle = () => { settings[key] = !settings[key]; paint(); save(true); };
+  el.addEventListener('click', toggle);
+  el.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(); } });
+}
+bindSwitch('learnSwitch', 'learn');
+bindSwitch('dictLearn', 'learn');
+bindSwitch('predictionSwitch', 'prediction');
+bindSwitch('inputPrediction', 'prediction');
+bindSwitch('autostartSwitch', 'autostart');
+
+document.querySelectorAll('[data-theme]').forEach((el) => el.addEventListener('click', () => {
+  settings.theme = el.dataset.theme;
+  paint();
+  save(true);
+}));
+
+['fontSize', 'inputFontSize'].forEach((id) => {
+  const el = $(id);
+  if (!el) return;
+  el.addEventListener('input', (e) => { settings.font_size = Number(e.target.value); paint(); });
+  el.addEventListener('change', () => save(false));
 });
-$('prediction').addEventListener('change', (e) => { settings.prediction = e.target.checked; save(); });
-$('learn').addEventListener('change', (e) => { settings.learn = e.target.checked; save(); });
-$('autostart').addEventListener('change', (e) => { settings.autostart = e.target.checked; save(); });
-$('fontSize').addEventListener('input', (e) => {
-  settings.font_size = Number(e.target.value);
-  $('fontSizeVal').textContent = settings.font_size;
-  applyPreview();
+
+$('saveInput').addEventListener('click', () => save(true));
+
+$('exportDict').addEventListener('click', async () => {
+  try { const p = await invoke('export_user_dict'); toast('已导出到 ' + p); }
+  catch (e) { toast('导出失败: ' + e); }
 });
-$('fontSize').addEventListener('change', save);
-document.querySelectorAll('#themeSeg button').forEach((b) => {
-  b.addEventListener('click', () => {
-    settings.theme = b.dataset.theme;
-    paint();
-    save();
+
+$('clearDict').addEventListener('click', async () => {
+  try { await invoke('clear_user_dict'); toast('用户词库已清空'); await refresh(); }
+  catch (e) { toast('操作失败: ' + e); }
+});
+
+/* ── search ── */
+$('search').addEventListener('input', (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  const active = document.querySelector('.page.active');
+  if (!active) return;
+  active.querySelectorAll('.lrow').forEach((row) => {
+    const hay = (row.dataset.search || row.textContent).toLowerCase();
+    row.style.display = !q || hay.includes(q) ? '' : 'none';
   });
 });
 
-$('clearUserDict').addEventListener('click', async () => {
-  try {
-    await invoke('clear_user_dict');
-    toast('用户词库已清空');
-    await refreshStats();
-  } catch (e) {
-    toast('操作失败: ' + e);
-  }
-});
-
-// ── Init ────────────────────────────────────────────────────────
-async function refreshStats() {
+/* ── data ── */
+async function refresh() {
   try {
     const s = await invoke('get_stats');
-    $('statDict').textContent = s.system_words.toLocaleString();
-    $('statUser').textContent = s.user_words.toLocaleString();
-    $('userDictPath').textContent = s.user_dict_path;
-    $('aboutDict').textContent = s.system_words.toLocaleString() + ' 词';
-    $('aboutVer').textContent = s.version;
-    $('brandVer').textContent = 'v' + s.version;
-  } catch (e) {
-    console.error(e);
-  }
+    const userWords = await invoke('list_user_words', { limit: 20 });
+    const fmt = (n) => n.toLocaleString();
+
+    $('kpiSys').textContent = fmt(s.system_words);
+    $('kpiUser').textContent = fmt(s.user_words);
+    $('kpiPath').textContent = s.user_dict_path;
+    $('userWordsMeta').textContent = fmt(s.user_words) + ' 条';
+    $('dictPath').textContent = s.user_dict_path;
+    $('acctDictPath').textContent = s.user_dict_path;
+    $('statUserWords').textContent = '用户词库 ' + fmt(s.user_words) + ' 条';
+    $('statSysWords').textContent = '系统词库 ' + fmt(s.system_words) + ' 词';
+    $('statusSysWords').textContent = fmt(s.system_words);
+    $('statusUserWords').textContent = fmt(s.user_words);
+    $('navDictCount').textContent = fmt(s.user_words) + ' 条';
+    $('aboutDict').textContent = fmt(s.system_words) + ' 词';
+    $('footMeta').textContent = '纯 Rust 引擎 · 词库 ' + fmt(s.system_words) + ' 词';
+    ['aboutVer', 'footVer', 'navVer', 'aboutFootVer'].forEach((id) => { if ($(id)) $(id).textContent = 'v' + s.version; });
+    $('brandVer').textContent = '设置中心 · v' + s.version;
+
+    const body = $('userWordsBody');
+    if (!userWords.length) {
+      body.innerHTML = '<tr><td colspan="2"><div class="empty"><strong>还没有学习记录</strong>提交候选词后会自动记录在这里</div></td></tr>';
+    } else {
+      body.innerHTML = userWords.map((w) =>
+        `<tr><td>${escapeHtml(w.word)}</td><td class="tnum" style="color:var(--text-3)">${w.freq.toFixed(1)}</td></tr>`
+      ).join('');
+    }
+  } catch (e) { console.error(e); }
 }
 
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+/* ── init ── */
 (async () => {
-  try {
-    settings = await invoke('get_settings');
-  } catch (e) {
-    console.error('load settings failed', e);
-  }
+  try { settings = await invoke('get_settings'); } catch (e) { console.error(e); }
   paint();
-  await refreshStats();
+  await refresh();
+  setInterval(refresh, 3000);
 })();
 }
 </script>

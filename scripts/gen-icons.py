@@ -15,9 +15,9 @@ ROOT = Path(__file__).resolve().parent.parent
 ICONS = ROOT / "app" / "icons"
 FONT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 
-# Gradient endpoints (#4F8CFF → #7B5CFF).
-C1 = (0x4F, 0x8C, 0xFF)
-C2 = (0x7B, 0x5C, 0xFF)
+# Gradient endpoints — matches the design brand mark (#E6C47C → #C1902F).
+C1 = (0xE6, 0xC4, 0x7C)
+C2 = (0xC1, 0x90, 0x2F)
 
 SS = 4  # supersampling factor
 
@@ -60,7 +60,7 @@ def make(size: int) -> Image.Image:
     tw, th = box[2] - box[0], box[3] - box[1]
     tx = (s - tw) / 2 - box[0]
     ty = (s - th) / 2 - box[1] - int(s * 0.045)
-    d.text((tx, ty), "R", font=font, fill=(255, 255, 255, 255))
+    d.text((tx, ty), "R", font=font, fill=(0x17, 0x13, 0x0A, 255))
 
     # Three candidate dots under the letter.
     r = int(s * 0.035)
@@ -69,7 +69,7 @@ def make(size: int) -> Image.Image:
     cx = s // 2
     for i, alpha in enumerate((255, 170, 110)):
         x = cx + (i - 1) * gap
-        d.ellipse([x - r, cy - r, x + r, cy + r], fill=(255, 255, 255, alpha))
+        d.ellipse([x - r, cy - r, x + r, cy + r], fill=(0x17, 0x13, 0x0A, alpha))
 
     return img.resize((size, size), Image.LANCZOS)
 

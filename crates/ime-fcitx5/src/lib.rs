@@ -140,6 +140,12 @@ impl ImeServer {
         e.clear_user_dict();
     }
 
+    /// Learned user entries as (word, frequency), highest first.
+    pub fn user_words(&self, limit: usize) -> Vec<(String, f64)> {
+        let e = self.engine.lock().unwrap();
+        e.user_words(limit)
+    }
+
     // ── Activate / deactivate ───────────────────────────────────────
 
     pub fn on_activate(&self) {
