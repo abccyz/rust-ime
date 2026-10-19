@@ -14,6 +14,8 @@
       }
       html, body {
         margin: 0; padding: 0;
+        height: 100%;
+        overflow: hidden;
         background: transparent;
         font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
         color: var(--fg);
@@ -110,18 +112,23 @@
         try { await invoke('commit_candidate', { idx: i }); } catch (e) { console.error(e); }
       }
 
-      // Keyboard: the window is transparent & key-grabbing. Map keys → engine.
-      window.addEventListener('keydown', async (e) => {
-        const k = e.key;
-        if (k === 'Backspace') { await invoke('feed_key', { key: 'backspace', ch: null }); e.preventDefault(); return; }
-        if (k === 'Enter') { await invoke('feed_key', { key: 'enter', ch: null }); e.preventDefault(); return; }
-        if (k === ' ') { await invoke('feed_key', { key: 'space', ch: null }); e.preventDefault(); return; }
-        if (k === 'Escape') { await invoke('feed_key', { key: 'escape', ch: null }); e.preventDefault(); return; }
-        if (k === 'ArrowLeft') { await invoke('feed_key', { key: 'left', ch: null }); e.preventDefault(); return; }
-        if (k === 'ArrowRight') { await invoke('feed_key', { key: 'right', ch: null }); e.preventDefault(); return; }
-        if (/^[1-9]$/.test(k)) { await invoke('feed_key', { key: 'digit' + k, ch: null }); e.preventDefault(); return; }
-        if (/^[a-zA-Z]$/.test(k)) { await invoke('feed_key', { key: k.toLowerCase(), ch: k.toLowerCase() }); e.preventDefault(); return; }
-      });
+      // Demo path: only active with ?demo=1 (window-focus keyboard capture).
+      // The real IME path is XRecord global grab → Rust backend; the webview
+      // is a passive renderer and must NOT capture keys.
+      const DEMO = new URLSearchParams(location.search).has('demo');
+      if (DEMO) {
+        window.addEventListener('keydown', async (e) => {
+          const k = e.key;
+          if (k === 'Backspace') { await invoke('feed_key', { key: 'backspace', ch: null }); e.preventDefault(); return; }
+          if (k === 'Enter') { await invoke('feed_key', { key: 'enter', ch: null }); e.preventDefault(); return; }
+          if (k === ' ') { await invoke('feed_key', { key: 'space', ch: null }); e.preventDefault(); return; }
+          if (k === 'Escape') { await invoke('feed_key', { key: 'escape', ch: null }); e.preventDefault(); return; }
+          if (k === 'ArrowLeft') { await invoke('feed_key', { key: 'left', ch: null }); e.preventDefault(); return; }
+          if (k === 'ArrowRight') { await invoke('feed_key', { key: 'right', ch: null }); e.preventDefault(); return; }
+          if (/^[1-9]$/.test(k)) { await invoke('feed_key', { key: 'digit' + k, ch: null }); e.preventDefault(); return; }
+          if (/^[a-zA-Z]$/.test(k)) { await invoke('feed_key', { key: k.toLowerCase(), ch: k.toLowerCase() }); e.preventDefault(); return; }
+        });
+      }
 
       // Listen for preedit snapshots emitted by the engine.
       window.__TAURI__.event.listen('preedit', (event) => {

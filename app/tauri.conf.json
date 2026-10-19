@@ -13,15 +13,17 @@
     "windows": [
       {
         "label": "main",
-        "title": "豆包输入法",
+        "title": "rust-ime",
         "width": 520,
         "height": 96,
-        "resizable": false,
+        "resizable": true,
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "decorations": false,
         "transparent": true,
-        "shadow": false
+        "shadow": false,
+        "focus": false,
+        "visible": false
       }
     ],
     "security": {

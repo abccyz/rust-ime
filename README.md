@@ -87,31 +87,62 @@ sudo apt install libfcitx5-dev
 | XIM 原生 commit（GTK/Qt/fcitx5 客户端） | ✅ |
 | XTest fallback（ASCII 场景） | ✅ |
 | 候选窗分页（9 条/页，翻页） | ✅ |
-| 光标定位候选窗 | ✅ |
+| 光标定位候选窗（跟随鼠标 +8/+24，520×96） | ✅ |
+| 全局键盘捕获（XRecord device_events） | ✅ |
+| 中英切换（Ctrl+Space） | ✅ |
+| 泄露字母自动擦除（提交前退格） | ✅ |
+| 单实例锁 | ✅ |
+| 开机自启（XDG autostart） | ✅ |
 | 云端转换 / LLM 联想 / 语音 / 手写 / 翻译 | ⏳ MVP 后 |
+
+## 使用
+
+```bash
+# 直接运行
+./target/release/rust-ime-app
+
+# 首次运行会写入 ~/.config/autostart/rust-ime.desktop（开机自启）
+# 关闭自启：rm ~/.config/autostart/rust-ime.desktop
+```
+
+**按键行为**（已验证于 Xvfb）：
+
+| 操作 | 行为 |
+|------|------|
+| 输入拼音（a-z） | 候选窗出现在鼠标右下方，显示拼音 + 候选 |
+| 空格 / 回车 | 提交首选候选：先退格擦除泄露的拼音字母，再插入汉字 |
+| 数字键 1-9 | 选择对应候选 |
+| Esc | 取消输入，擦除泄露的拼音字母 |
+| Ctrl+Space | 中英切换（终端打印 `IME ON/OFF`） |
+| 提交/取消后 | 候选窗自动隐藏 |
+
+**已知限制**：
+- 不抓取键盘（`XRecord` 只观察），拼音字母会先进入目标应用，提交时用退格擦除。若应用在收到 Enter 时就提交表单（搜索框），可能出现误触发。可设 `RUSTIME_SUPPRESS=1` 启用实验性的键盘抓取。
+- 候选窗定位跟随**鼠标**，不是文本插入点（精确插入点需 AT-SPI）。
 
 ## 架构
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Tauri 候选窗 (index.html)                                   │
-│  - 透明置顶 webview，跟随光标                                 │
-│  - 键盘事件 → invoke("feed_key")                              │
-│  - 监听 "preedit" event → 渲染候选                           │
+│  Tauri 候选窗 (index.html) 520×96 透明置顶，默认隐藏           │
+│  - 监听 "preedit" event → 渲染拼音/候选                       │
+│  - 鼠标点击选择候选                                            │
 └──────────────────────────┬──────────────────────────────────┘
-                           │ tauri commands
+                           │ tauri events / commands
 ┌──────────────────────────▼──────────────────────────────────┐
-│  app/src/main.rs (Rust backend)                              │
-│  - DisplayHandle: X11 Display 生命周期                        │
-│  - commit_text: XIM first → XTest fallback                   │
-│  - page_next/page_prev: 候选翻页                              │
+│  app/src/main.rs                                             │
+│  - XRecord 全局按键 → 引擎 → 候选                             │
+│  - Ctrl+Space 中英切换                                        │
+│  - commit: 退格擦除 + xdotool type（UTF-8/CJK）                │
+│  - 候选窗 show/hide + 跟随鼠标定位                             │
+│  - 单实例锁 + XDG autostart                                   │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
 │  ime-fcitx5 (X11 IM layer)                                  │
+│  - keygrab.rs: XRecord device_events 全局捕获（8 字节事件头）    │
 │  - ImeServer: 线程安全引擎 + XIC 连接管理                      │
 │  - xim.rs: FnCommitString / Preedit / Reset 属性投递          │
-│  - commit.rs: XTest 合成按键                                  │
 │  - cursor.rs: 光标位置                                        │
 └──────────────────────────┬──────────────────────────────────┘
                            │

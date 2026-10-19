@@ -13,6 +13,7 @@
 
 pub mod commit;
 pub mod cursor;
+pub mod keygrab;
 pub mod x11_keys;
 pub mod xim;
 

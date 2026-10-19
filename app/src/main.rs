@@ -1,11 +1,19 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
+
 use ime_engine::EngineEvent;
+use ime_fcitx5::keygrab::{self, GrabbedKey, KeyGrabber};
 use ime_fcitx5::ImeServer;
 use tauri::{AppHandle, Emitter, Manager, State};
 use x11_dl::xlib;
 
+/// Whether the IME is in Chinese (pinyin) mode. Toggled by Ctrl+Space.
+static IME_ACTIVE: AtomicBool = AtomicBool::new(true);
+
 /// Thread-safe wrapper for the X11 Display pointer.
+#[derive(Clone)]
 struct DisplayHandle(*mut xlib::Display);
 
 unsafe impl Send for DisplayHandle {}
@@ -87,29 +95,53 @@ fn snapshot(server: &ImeServer) -> PreeditView {
 }
 
 fn emit_preedit(app: &AppHandle, server: &ImeServer) {
-    if let Some(win) = app.get_webview_window("main") {
-        let _ = win.emit("preedit", snapshot(server));
+    let Some(win) = app.get_webview_window("main") else {
+        return;
+    };
+    let snap = snapshot(server);
+    let active = !snap.raw.is_empty();
+    let _ = win.emit("preedit", snap);
+
+    if active {
+        // Candidate strip is a fixed 520x96 (logical px).
+        let _ = win.set_size(tauri::LogicalSize::new(520.0, 96.0));
+        // Place it just below-right of the pointer.
+        match keygrab::pointer_pos() {
+            Some((x, y)) => {
+                if let Err(e) = win.set_position(tauri::PhysicalPosition::new(x + 8, y + 24)) {
+                    eprintln!("[rust-ime] set_position failed: {e}");
+                }
+            }
+            None => eprintln!("[rust-ime] pointer_pos returned None"),
+        }
+        let _ = win.show();
+    } else {
+        let _ = win.hide();
     }
 }
 
-/// Commit text to the focused app: try XIM first, fall back to XTest.
-fn commit_text(app: &AppHandle, server: &ImeServer, text: &str) {
-    let state = app.state::<AppState>();
-    let display = state.display.as_ptr();
+/// How many raw pinyin letters have leaked into the focused app (because we
+/// don't grab the keyboard). On commit we erase them with BackSpace before
+/// injecting the Chinese text.
+static LEAKED_CHARS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-    if state.display.is_open() {
-        // Try native XIM commit.
-        let result = unsafe { server.commit_to_client(display, text) };
-        match result {
-            Ok(()) => return,
-            Err(_) => {
-                // No XIC connected — fall through to XTest.
-            }
-        }
+/// Commit text to the focused app: first erase leaked pinyin letters, then
+/// inject the committed text. Both run in one ordered `xdotool` invocation
+/// (UTF-8/CJK capable).
+fn commit_text(_app: &AppHandle, _server: &ImeServer, text: &str) {
+    let leaked = LEAKED_CHARS.swap(0, Ordering::SeqCst);
+    if leaked == 0 && text.is_empty() {
+        return;
     }
-    // Fallback: XTest synthetic keys (ASCII only).
-    if state.display.is_open() {
-        let _ = unsafe { ime_fcitx5::commit::commit_text(display, text) };
+    let mut cmd = std::process::Command::new("xdotool");
+    if leaked > 0 {
+        cmd.args(["key", "--repeat", &leaked.to_string(), "BackSpace"]);
+    }
+    if !text.is_empty() {
+        cmd.args(["type", "--clearmodifiers", "--delay", "0", text]);
+    }
+    if let Err(e) = cmd.spawn() {
+        eprintln!("[rust-ime] xdotool inject failed: {e}");
     }
 }
 
@@ -229,16 +261,197 @@ fn parse_key(name: &str, ch: Option<char>) -> ime_engine::Key {
     }
 }
 
+/// Whether to suppress consumed keys from reaching the focused app.
+/// Off by default: `XGrabKeyboard` can hang the whole desktop if the ungrab
+/// fails, so it's opt-in via `RUSTIME_SUPPRESS=1`.
+fn suppress_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("RUSTIME_SUPPRESS").ok().as_deref() == Some("1"))
+}
+
+/// X11 keycodes we track for the Ctrl+Space toggle.
+const KC_CTRL_L: u32 = 37;
+const KC_CTRL_R: u32 = 105;
+
+static CTRL_DOWN: AtomicBool = AtomicBool::new(false);
+
+/// Handle a grabbed key: decide whether to consume (IME mode) or pass through.
+fn handle_grabbed_key(app: &AppHandle, gk: &GrabbedKey) {
+    // Track Ctrl state (press and release) for the Ctrl+Space toggle.
+    if gk.keycode == KC_CTRL_L || gk.keycode == KC_CTRL_R {
+        CTRL_DOWN.store(gk.is_press, Ordering::SeqCst);
+        return; // never consume the modifier itself
+    }
+    if !gk.is_press {
+        return;
+    }
+
+    // Resolve the keycode → Key on THIS (dispatch) thread. The grabber thread
+    // cannot do this without deadlocking.
+    let key = keygrab::resolve_key(gk.keycode);
+    let state = app.state::<AppState>();
+
+    // Ctrl+Space: toggle Chinese/English mode.
+    if key == ime_engine::Key::Space && CTRL_DOWN.load(Ordering::SeqCst) {
+        let now = !IME_ACTIVE.load(Ordering::SeqCst);
+        IME_ACTIVE.store(now, Ordering::SeqCst);
+        let _ = state.server.reset();
+        LEAKED_CHARS.store(0, Ordering::SeqCst);
+        emit_preedit(app, &state.server);
+        eprintln!("[rust-ime] IME {}", if now { "ON (中文)" } else { "OFF (English)" });
+        return;
+    }
+
+    if !IME_ACTIVE.load(Ordering::SeqCst) {
+        return;
+    }
+
+    let should_consume = matches!(
+        key,
+        ime_engine::Key::Letter(_)
+            | ime_engine::Key::Digit(_)
+            | ime_engine::Key::Backspace
+            | ime_engine::Key::Enter
+            | ime_engine::Key::Space
+            | ime_engine::Key::Escape
+            | ime_engine::Key::Left
+            | ime_engine::Key::Right
+    );
+    if !should_consume {
+        return;
+    }
+
+    if suppress_enabled() {
+        keygrab::suppress_key_event();
+    }
+
+    // Without suppression, letters typed for the pinyin buffer also reach the
+    // target app. Track how many so we can erase them on commit.
+    if !suppress_enabled() {
+        match key {
+            ime_engine::Key::Letter(_) | ime_engine::Key::Digit(_) => {
+                LEAKED_CHARS.fetch_add(1, Ordering::SeqCst);
+            }
+            ime_engine::Key::Backspace => {
+                let _ = LEAKED_CHARS.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| {
+                    Some(n.saturating_sub(1))
+                });
+            }
+            _ => {}
+        }
+    }
+
+    let events = state.server.on_key(key);
+    emit_preedit(app, &state.server);
+
+    let mut committed = false;
+    for ev in &events {
+        if let EngineEvent::Commit(text) = ev {
+            eprintln!("[rust-ime] commit: {text}");
+            commit_text(app, &state.server, text);
+            committed = true;
+            if state.display.is_open() {
+                let _ = unsafe { state.server.clear_preedit(state.display.as_ptr()) };
+            }
+        }
+    }
+
+    // Escape cancels the preedit: erase the leaked pinyin letters.
+    if !committed && key == ime_engine::Key::Escape && !suppress_enabled() {
+        let leaked = LEAKED_CHARS.swap(0, Ordering::SeqCst);
+        if leaked > 0 {
+            keygrab::send_backspaces(leaked);
+        }
+    }
+}
+
+/// Ensure only one instance runs. Returns a listener that must stay alive;
+/// `None` means another instance already owns the socket.
+fn single_instance() -> Option<std::os::unix::net::UnixListener> {
+    let dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let path = format!("{dir}/rust-ime.sock");
+    use std::os::unix::net::{UnixListener, UnixStream};
+    // If a live instance answers, bail out. Otherwise clear the stale socket.
+    if UnixStream::connect(&path).is_ok() {
+        return None;
+    }
+    let _ = std::fs::remove_file(&path);
+    UnixListener::bind(&path).ok()
+}
+
+/// Register the app for XDG autostart (user-level, no sudo).
+fn ensure_autostart() {
+    let exe = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(_) => return,
+    };
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return,
+    };
+    let dir = format!("{home}/.config/autostart");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = format!("{dir}/rust-ime.desktop");
+    let content = format!(
+        "[Desktop Entry]\nType=Application\nName=rust-ime\nComment=Pinyin input method (Rust + Tauri)\nExec=\"{}\"\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
+        exe.display()
+    );
+    if std::fs::read_to_string(&path).ok().as_deref() != Some(content.as_str())
+        && std::fs::write(&path, content).is_ok()
+    {
+        eprintln!("[rust-ime] autostart registered: {path}");
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Open X11 display for XIM commit + cursor tracking.
+    let _instance = match single_instance() {
+        Some(l) => l,
+        None => {
+            eprintln!("[rust-ime] another instance is already running");
+            return;
+        }
+    };
+    ensure_autostart();
+
+    // Open X11 display for XIM commit + cursor tracking + key grab.
     let display = DisplayHandle::new();
+
+    // Set up global key grab
+    let (tx, rx) = mpsc::channel::<GrabbedKey>();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {
             server: ImeServer::new(),
             display,
+        })
+        .setup(move |app| {
+            let handle = app.handle().clone();
+
+            // Start the key grabber (opens its own X11 connection).
+            match KeyGrabber::start(tx) {
+                Ok(grabber) => {
+                    // Keep the grabber alive for the app's lifetime.
+                    std::mem::forget(grabber);
+                    eprintln!("[rust-ime] global key grabber started");
+                }
+                Err(e) => {
+                    eprintln!("[rust-ime] keygrab failed: {e}");
+                }
+            }
+
+            // Spawn reader thread: reads grabbed keys → feeds engine
+            std::thread::Builder::new()
+                .name("ime-key-dispatch".into())
+                .spawn(move || {
+                    for key in rx {
+                        handle_grabbed_key(&handle, &key);
+                    }
+                })
+                .expect("spawn key dispatch thread");
+
+            Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             feed_key,
