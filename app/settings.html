@@ -260,6 +260,10 @@
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.4"/><circle cx="9" cy="17" r="2.4"/></svg>
       <span class="lbl">设置中心</span>
     </button>
+    <button class="nav-item" data-page="system">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="4" width="19" height="12.5" rx="2"/><path d="M8 20h8M12 16.5V20"/><circle cx="8" cy="10.25" r="1"/><path d="M12 8.5h5M12 11.5h4"/></svg>
+      <span class="lbl">系统接入</span>
+    </button>
     <button class="nav-item" data-page="input">
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></svg>
       <span class="lbl">输入与候选</span>
@@ -391,6 +395,71 @@
       </footer>
     </section>
 
+
+    <!-- ═══ 系统接入 ═══ -->
+    <section class="page" id="system">
+      <div class="content-head"><div><h1>系统接入</h1><p>输入法在系统中如何启用，以及当前运行状态</p></div>
+        <div class="head-status"><span class="dot green"></span><span id="sysModeTop">检测中</span></div></div>
+
+      <section class="statline">
+        <span class="sl-item"><span class="dot gold"></span><span id="sysMode">当前模式：检测中</span></span>
+        <span class="sl-sep"></span>
+        <span class="sl-item muted" id="sysSession">会话 —</span>
+        <span class="sl-sep"></span>
+        <span class="sl-item muted" id="sysDisplay">DISPLAY —</span>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>运行状态</h2><span class="panel-meta">实时</span></div>
+        <article class="lrow"><div class="lrow-t"><div class="lrow-l">X11 会话</div><div class="lrow-h">全局按键捕获依赖 X11，Wayland 下不可用</div></div>
+          <div class="lrow-c"><span class="tag" id="sysX11">—</span></div></article>
+        <article class="lrow"><div class="lrow-t"><div class="lrow-l">全局按键捕获</div><div class="lrow-h">XRecord 设备事件，无需 root 权限</div></div>
+          <div class="lrow-c"><span class="tag" id="sysGrab">—</span></div></article>
+        <article class="lrow"><div class="lrow-t"><div class="lrow-l">系统托盘</div><div class="lrow-h">左键点击托盘图标进入设置中心</div></div>
+          <div class="lrow-c"><span class="tag ok" id="sysTray">已启用</span></div></article>
+        <article class="lrow"><div class="lrow-t"><div class="lrow-l">开机自启</div><div class="lrow-h">登录桌面后自动运行输入法</div></div>
+          <div class="lrow-c"><span class="switch on" id="sysAutostart" role="switch" tabindex="0"></span></div></article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>接入方式</h2></div>
+        <article class="lrow"><div class="lrow-t"><div class="lrow-l">独立 X11 模式</div><div class="lrow-h">直接运行，全局捕获按键，无需额外配置</div></div>
+          <div class="lrow-c"><span class="tag ok" id="sysStandalone">当前使用</span></div></article>
+        <article class="lrow"><div class="lrow-t"><div class="lrow-l">fcitx5 插件</div><div class="lrow-h">随 fcitx5 启动，与其他输入法并列，可自由切换（可选）</div></div>
+          <div class="lrow-c"><span class="tag" id="sysAddon">—</span></div></article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>输入法切换</h2></div>
+        <article class="lrow"><div class="lrow-t"><div class="lrow-l">中英切换</div><div class="lrow-h" id="sysToggleKey">Ctrl+Space</div></div>
+          <div class="lrow-c"><button class="btn" data-goto="overview">修改</button></div></article>
+        <article class="lrow"><div class="lrow-t"><div class="lrow-l">当前输入状态</div><div class="lrow-h">按切换键可在中英文之间切换</div></div>
+          <div class="lrow-c"><span class="tag" id="sysImeMode">中文</span></div></article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>与其他输入法共存</h2><span class="panel-meta" id="sysFcitxTag">检测中</span></div>
+        <article class="lrow">
+          <div class="lrow-t"><div class="lrow-l">fcitx5 进程</div><div class="lrow-h" id="sysFcitxHint">两套输入法会同时争抢按键，测试本输入法前请先停用 fcitx5</div></div>
+          <div class="lrow-c">
+            <button class="btn danger" id="stopFcitx5">停用 fcitx5</button>
+            <button class="btn" id="startFcitx5">启动 fcitx5</button>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head"><h2>使用步骤</h2></div>
+        <div class="empty" style="text-align:left;padding:16px 18px;line-height:1.9">
+          <strong style="text-align:left">首次使用</strong>
+          1. 停用其他输入法（上方「停用 fcitx5」），避免按键冲突<br/>
+          2. 保持本程序运行（开机自启已可开启）<br/>
+          3. 在任意输入框输入拼音，候选窗会出现在鼠标附近<br/>
+          4. 空格 / 回车提交，数字键选择，Esc 取消<br/>
+          5. 左键点击系统托盘图标可随时回到设置中心
+        </div>
+      </section>
+    </section>
     <!-- ═══ 输入与候选 ═══ -->
     <section class="page" id="input">
       <div class="content-head"><div><h1>输入与候选</h1><p>输入方案、候选数量与预测</p></div>
@@ -655,6 +724,8 @@ function paint() {
   ['learnSwitch', 'dictLearn'].forEach((id) => $(id) && $(id).classList.toggle('on', settings.learn));
   ['predictionSwitch', 'inputPrediction'].forEach((id) => $(id) && $(id).classList.toggle('on', settings.prediction));
   $('autostartSwitch').classList.toggle('on', settings.autostart);
+  if ($('sysAutostart')) $('sysAutostart').classList.toggle('on', settings.autostart);
+  if ($('sysToggleKey')) $('sysToggleKey').textContent = settings.toggle_key === 'shift' ? '轻按 Shift' : 'Ctrl + Space';
   ['fontSize', 'inputFontSize'].forEach((id) => { if ($(id)) $(id).value = settings.font_size; });
   $('fontVal').textContent = settings.font_size;
   $('inputFontVal').textContent = settings.font_size;
@@ -715,6 +786,7 @@ bindSwitch('dictLearn', 'learn');
 bindSwitch('predictionSwitch', 'prediction');
 bindSwitch('inputPrediction', 'prediction');
 bindSwitch('autostartSwitch', 'autostart');
+bindSwitch('sysAutostart', 'autostart');
 
 document.querySelectorAll('[data-theme]').forEach((el) => el.addEventListener('click', () => {
   settings.theme = el.dataset.theme;
@@ -740,6 +812,8 @@ window.__TAURI__.event.listen('ime-mode', (e) => {
   const on = e.payload && e.payload.chinese;
   const hint = $('imeModeHint');
   if (hint) hint.textContent = '当前输入状态：' + (on ? '中文' : '英文');
+  const sysModeTag = $('sysImeMode');
+  if (sysModeTag) { sysModeTag.textContent = on ? '中文' : '英文'; sysModeTag.className = 'tag ' + (on ? 'ok' : 'off'); }
 });
 
 $('exportDict').addEventListener('click', async () => {
@@ -781,6 +855,44 @@ document.addEventListener('keydown', (e) => {
     $('search').focus();
     $('search').select();
   }
+});
+
+/* ── system integration ── */
+async function refreshSystem() {
+  try {
+    const st = await invoke('get_system_status');
+    const modeText = st.mode === 'fcitx5' ? 'fcitx5 插件' : '独立 X11';
+    $('sysMode').textContent = '当前模式：' + modeText;
+    $('sysModeTop').textContent = modeText + ' · 运行中';
+    $('sysSession').textContent = '会话 ' + st.session_type;
+    $('sysDisplay').textContent = 'DISPLAY ' + (st.display || '—');
+
+    const setTag = (id, ok, yes, no) => {
+      const el = $(id);
+      if (!el) return;
+      el.textContent = ok ? yes : no;
+      el.className = 'tag ' + (ok ? 'ok' : 'off');
+    };
+    setTag('sysX11', st.x11_ok, '已连接', '不可用');
+    setTag('sysGrab', st.x11_ok, '已启用', '不可用');
+    setTag('sysAddon', st.fcitx5_addon_installed, '已安装', '未安装');
+    setTag('sysFcitxTag', st.fcitx5_running, '运行中', '未运行');
+    setTag('sysStandalone', st.mode === 'standalone', '当前使用', '—');
+    $('sysAutostart').classList.toggle('on', st.autostart_enabled);
+    $('sysToggleKey').textContent = settings.toggle_key === 'shift' ? '轻按 Shift' : 'Ctrl + Space';
+    $('sysFcitxHint').textContent = st.fcitx5_running
+      ? '检测到 fcitx5 正在运行，两套输入法会争抢按键，建议先停用'
+      : '未检测到 fcitx5，当前输入法可独占按键';
+  } catch (e) { console.error(e); }
+}
+
+$('stopFcitx5').addEventListener('click', async () => {
+  try { await invoke('set_fcitx5', { enabled: false }); toast('已停用 fcitx5'); setTimeout(refreshSystem, 900); }
+  catch (e) { toast('操作失败: ' + e); }
+});
+$('startFcitx5').addEventListener('click', async () => {
+  try { await invoke('set_fcitx5', { enabled: true }); toast('已启动 fcitx5'); setTimeout(refreshSystem, 1400); }
+  catch (e) { toast('操作失败: ' + e); }
 });
 
 /* ── data ── */
@@ -826,7 +938,8 @@ function escapeHtml(s) {
   try { settings = await invoke('get_settings'); } catch (e) { console.error(e); }
   paint();
   await refresh();
-  setInterval(refresh, 3000);
+  await refreshSystem();
+  setInterval(() => { refresh(); refreshSystem(); }, 3000);
 })();
 }
 </script>

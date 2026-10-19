@@ -178,6 +178,96 @@ struct Stats {
     version: String,
 }
 
+#[derive(serde::Serialize)]
+struct SystemStatus {
+    session_type: String,
+    display: String,
+    x11_ok: bool,
+    fcitx5_running: bool,
+    fcitx5_addon_installed: bool,
+    fcitx5_im_registered: bool,
+    autostart_enabled: bool,
+    /// "standalone" (XRecord) or "fcitx5" (plugin active).
+    mode: String,
+}
+
+fn process_running(name: &str) -> bool {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return false;
+    };
+    for e in entries.flatten() {
+        let comm = e.path().join("comm");
+        if let Ok(s) = std::fs::read_to_string(comm) {
+            if s.trim() == name {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn any_exists(paths: &[&str]) -> bool {
+    paths.iter().any(|p| std::path::Path::new(p).exists())
+}
+
+/// Detect how the IME is wired into the running system.
+#[tauri::command]
+fn get_system_status(state: State<'_, AppState>) -> SystemStatus {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let session_type = std::env::var("XDG_SESSION_TYPE").unwrap_or_else(|_| "unknown".into());
+    let display = std::env::var("DISPLAY").unwrap_or_default();
+
+    let addon_installed = any_exists(&[
+        "/usr/share/fcitx5/addon/rustime.conf",
+        &format!("{home}/.local/share/fcitx5/addon/rustime.conf"),
+    ]) && any_exists(&[
+        "/usr/lib/x86_64-linux-gnu/fcitx5/librustime.so",
+        "/usr/lib/fcitx5/librustime.so",
+        &format!("{home}/.local/lib/fcitx5/librustime.so"),
+    ]);
+
+    let im_registered = any_exists(&[
+        "/usr/share/fcitx5/inputmethod/rust-ime.conf",
+        &format!("{home}/.local/share/fcitx5/inputmethod/rust-ime.conf"),
+    ]);
+
+    let fcitx5_running = process_running("fcitx5");
+    let autostart_enabled =
+        std::path::Path::new(&format!("{home}/.config/autostart/rust-ime.desktop")).exists();
+
+    let mode = if addon_installed && im_registered && fcitx5_running {
+        "fcitx5"
+    } else {
+        "standalone"
+    };
+
+    SystemStatus {
+        session_type,
+        display: display.clone(),
+        x11_ok: state.display.is_open(),
+        fcitx5_running,
+        fcitx5_addon_installed: addon_installed,
+        fcitx5_im_registered: im_registered,
+        autostart_enabled,
+        mode: mode.to_string(),
+    }
+}
+
+/// Start or stop fcitx5 (used when the two IMEs conflict).
+#[tauri::command]
+fn set_fcitx5(enabled: bool) -> Result<(), String> {
+    let (program, args): (&str, &[&str]) = if enabled {
+        ("fcitx5", &["-d", "-r"])
+    } else {
+        ("fcitx5-remote", &["-e"])
+    };
+    std::process::Command::new(program)
+        .args(args)
+        .spawn()
+        .map_err(|e| format!("无法执行 {program}: {e}"))?;
+    Ok(())
+}
+
 #[tauri::command]
 fn get_settings(state: State<'_, AppState>) -> Settings {
     state.settings.lock().unwrap().clone()
@@ -793,6 +883,8 @@ pub fn run() {
             get_settings,
             save_settings,
             get_stats,
+            get_system_status,
+            set_fcitx5,
             clear_user_dict,
             list_user_words,
             export_user_dict,
