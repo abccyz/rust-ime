@@ -77,6 +77,12 @@
       <div id="hint">空格/回车 = 提交首选 · 数字键 = 选择 · Esc = 清除</div>
     </div>
     <script>
+      if (!window.__TAURI__) {
+        document.body.innerHTML =
+          '<div style="color:#ff6b6b;padding:10px;font-size:13px">' +
+          'Tauri API 未注入：请在 tauri.conf.json 中开启 app.withGlobalTauri' +
+          '</div>';
+      } else {
       const { invoke } = window.__TAURI__.core;
       const preeditEl = document.getElementById('preedit');
       const candEl = document.getElementById('candidates');
@@ -139,6 +145,7 @@
 
       // Focus the body so keydown fires.
       window.addEventListener('load', () => { document.body.focus(); });
+      } // end Tauri-API guard
     </script>
   </body>
 </html>

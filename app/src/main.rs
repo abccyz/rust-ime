@@ -105,7 +105,6 @@ fn emit_preedit(app: &AppHandle, server: &ImeServer) {
     };
     let snap = snapshot(server);
     let active = !snap.raw.is_empty();
-    let _ = win.emit("preedit", snap);
 
     if active {
         // Snapshot the focused window BEFORE we show our always-on-top strip.
@@ -114,8 +113,8 @@ fn emit_preedit(app: &AppHandle, server: &ImeServer) {
             PREV_FOCUS.store(focus, Ordering::SeqCst);
         }
 
-        // Candidate strip is a fixed 520x96 (logical px).
-        let _ = win.set_size(tauri::LogicalSize::new(520.0, 96.0));
+        // Candidate strip is a fixed 520x110 (logical px).
+        let _ = win.set_size(tauri::LogicalSize::new(520.0, 124.0));
         // Place it just below-right of the pointer.
         match keygrab::pointer_pos() {
             Some((x, y)) => {
@@ -125,6 +124,7 @@ fn emit_preedit(app: &AppHandle, server: &ImeServer) {
             }
             None => eprintln!("[rust-ime] pointer_pos returned None"),
         }
+        // Show FIRST: a hidden webview drops emitted events.
         let _ = win.show();
 
         // Do not let the strip keep focus (it would swallow injected text).
@@ -132,7 +132,16 @@ fn emit_preedit(app: &AppHandle, server: &ImeServer) {
         if prev != 0 {
             keygrab::set_input_focus(prev as std::os::raw::c_ulong);
         }
+
+        let _ = win.emit("preedit", snap.clone());
+        // Also re-emit on the next tick in case the webview was still waking up.
+        let win2 = win.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(60));
+            let _ = win2.emit("preedit", snap);
+        });
     } else {
+        let _ = win.emit("preedit", snap);
         let _ = win.hide();
         PREV_FOCUS.store(0, Ordering::SeqCst);
     }

@@ -10,12 +10,13 @@
     "frontendDist": "../dist"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
         "label": "main",
         "title": "rust-ime",
         "width": 520,
-        "height": 96,
+        "height": 124,
         "resizable": true,
         "alwaysOnTop": true,
         "skipTaskbar": true,
