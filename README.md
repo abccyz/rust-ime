@@ -1,0 +1,309 @@
+# rust-ime
+
+Linux 版「豆包输入法」的 Rust + Tauri 重实现。
+
+从 `豆包输入法.apk`（`com.bytedance.android.doubaoime`，字节内部 **wave-ime** 框架的 Android 移植）逆向出核心架构后，用 Rust 重写引擎、Tauri 做候选窗 UI、XIM/XTest 做 Linux 输入法接入。
+
+## 逆向结论（详见 `../REA_FINDINGS.md`）
+
+豆包输入法 = **原生 C++ 引擎 + 平台桥接**，不是 WebView 壳：
+- 核心 `libkeyboard.so`（`keyboard::` 命名空间，2173 个导出符号）：拼音引擎 + 云转换 + 豆包 LLM + 纠错 + 翻译 + 键盘 UI。
+- 平台被抽成接口：`libime_ui_android_platform.so` 提供 `GetWindow/GetFont/GetImage/GetTimer/GetAssets`；网络走 `android_host_network_bridge`（宿主桥）。
+- Android 壳 `ImeService` 通过 `KeyboardJni`（215 个 native 方法）驱动引擎，用 `InputConnection.commitText/setComposingText/setSelection` 提交文本。
+- 云端 `https://ime.doubao.com`：`/cloud/convert`、`/cloud/wordasso`、`/llm`、`/translate`、`/sync/*`。
+
+## 本仓库的取舍
+
+- **引擎用 Rust 原生重实现**（不 FFI 原 C++ 二进制）：拼音 26 键、本地词库候选、用户词库学习、候选选择/提交。云/LLM/语音/手写/翻译为 MVP 之后。
+- **XIM + XTest** 作为 IM 框架接入层（标准 X11 IM 协议，兼容 fcitx5/ibus/GTK/Qt 客户端）。
+- **Tauri** 做候选窗（webview，跟随光标、透明置顶）。
+
+## 布局
+
+```
+rust-ime/
+├── Cargo.toml                 # workspace
+├── Makefile                   # 开发 / 质量门 / CI 镜像 / 打包
+├── .github/workflows/ci.yml   # CI: test + clippy + release build
+├── crates/
+│   ├── ime-engine/            # 纯 Rust 引擎（无外部依赖，可离线编译）
+│   │   ├── data/dict.txt      #   5500+ 词条（拼音 + 权重）
+│   │   └── src/
+│   │       ├── pinyin.rs      #   412 拼音音节 + 字符串分段（DP，长音节优先）
+│   │       ├── candidate.rs   #   trie + 前缀召回 + 分段候选 + 用户词库加权
+│   │       ├── engine.rs      #   Engine 状态机（feed_key/commit/finish/reset）
+│   │       └── userdict.rs    #   用户词库持久化 + 学习
+│   └── ime-fcitx5/            # X11 IM 框架集成
+│       └── src/
+│           ├── lib.rs         #   ImeServer（线程安全引擎 + XIC 管理）
+│           ├── xim.rs         #   XIM FnCommitString / Preedit / Reset 属性投递
+│           ├── commit.rs      #   XTest 合成按键 fallback
+│           ├── cursor.rs      #   XQueryPointer 光标位置
+│           └── x11_keys.rs    #   keysym → Key 转换
+└── app/                       # Tauri 候选窗
+    ├── src/main.rs            #   Tauri 命令 + X11 Display 管理 + XIM commit
+    ├── index.html             #   候选窗前端（透明窗口，键盘监听）
+    └── tauri.conf.json
+```
+
+## 构建
+
+```bash
+# 快速迭代（格式化 + 测试 + clippy）
+make dev
+
+# 完整 CI 镜像（test + lint + release build）
+make ci
+
+# 仅引擎测试（无外部依赖）
+cargo test -p ime-engine
+
+# Tauri 应用
+make run
+```
+
+### 系统依赖
+
+```bash
+# Tauri 前端
+sudo apt install libwebkit2gtk-4.1-dev libgtk-3-dev libglib2.0-dev
+
+# X11 IM（XIM commit + XTest）
+sudo apt install libx11-dev libxext-dev libxtest-dev
+
+# 可选：fcitx5 开发头（未来接 fcitx5 addon API）
+sudo apt install libfcitx5-dev
+```
+
+## MVP 能力
+
+| 能力 | 状态 |
+|------|------|
+| 拼音 26 键输入 → 候选 | ✅ |
+| 长音节优先消歧（xian→先/闲） | ✅ |
+| 前缀召回（niha → 你好） | ✅ |
+| 用户词库学习（提交后加权 + 持久化） | ✅ |
+| 5500+ 词条覆盖常用汉字/词语 | ✅ |
+| XIM 原生 commit（GTK/Qt/fcitx5 客户端） | ✅ |
+| XTest fallback（ASCII 场景） | ✅ |
+| 候选窗竖排，最多 10 个候选（带序号） | ✅ |
+| 上下文预测（提交后预测下一个词） | ✅ |
+| 光标定位候选窗（跟随鼠标 +8/+24） | ✅ |
+| 全局键盘捕获（XRecord device_events） | ✅ |
+| 中英切换（Ctrl+Space） | ✅ |
+| 泄露字母自动擦除（提交前退格） | ✅ |
+| 单实例锁 | ✅ |
+| 开机自启（XDG autostart） | ✅ |
+| 云端转换 / LLM 联想 / 语音 / 手写 / 翻译 | ⏳ MVP 后 |
+
+## 使用
+
+```bash
+# 直接运行
+./target/release/rust-ime-app
+
+# 首次运行会写入 ~/.config/autostart/rust-ime.desktop（开机自启）
+# 关闭自启：rm ~/.config/autostart/rust-ime.desktop
+```
+
+**按键行为**（已验证于 Xvfb）：
+
+| 操作 | 行为 |
+|------|------|
+| 输入拼音（a-z） | 候选窗出现在鼠标右下方，显示拼音 + 候选 |
+| 空格 / 回车 | 提交首选候选：先退格擦除泄露的拼音字母，再插入汉字 |
+| 数字键 1-9 | 选择对应候选 |
+| Esc | 取消输入，擦除泄露的拼音字母 |
+| Ctrl+Space | 中英切换（终端打印 `IME ON/OFF`） |
+| 提交/取消后 | 候选窗自动隐藏 |
+
+**已知限制**：
+- 不抓取键盘（`XRecord` 只观察），拼音字母会先进入目标应用，提交时用退格擦除。若应用在收到 Enter 时就提交表单（搜索框），可能出现误触发。可设 `RUSTIME_SUPPRESS=1` 启用实验性的键盘抓取。
+- 候选窗定位跟随**鼠标**，不是文本插入点（精确插入点需 AT-SPI）。
+
+## 架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Tauri 候选窗 (index.html) 520×96 透明置顶，默认隐藏           │
+│  - 监听 "preedit" event → 渲染拼音/候选                       │
+│  - 鼠标点击选择候选                                            │
+└──────────────────────────┬──────────────────────────────────┘
+                           │ tauri events / commands
+┌──────────────────────────▼──────────────────────────────────┐
+│  app/src/main.rs                                             │
+│  - XRecord 全局按键 → 引擎 → 候选                             │
+│  - Ctrl+Space 中英切换                                        │
+│  - commit: 退格擦除 + 内置 XTest 注入（UTF-8/CJK，零外部工具）  │
+│  - 候选窗 show/hide + 跟随鼠标定位                             │
+│  - 单实例锁 + XDG autostart                                   │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────┐
+│  ime-fcitx5 (X11 IM layer)                                  │
+│  - keygrab.rs: XRecord device_events 全局捕获（8 字节事件头）    │
+│  - ImeServer: 线程安全引擎 + XIC 连接管理                      │
+│  - xim.rs: FnCommitString / Preedit / Reset 属性投递          │
+│  - cursor.rs: 光标位置                                        │
+└──────────────────────────┬──────────────────────────────────┘
+                           │
+┌──────────────────────────▼──────────────────────────────────┐
+│  ime-engine (纯 Rust 引擎，无外部依赖)                        │
+│  - pinyin.rs: 412 音节 + DP 分段                              │
+│  - candidate.rs: trie 前缀召回 + 分段候选 + 用户词库加权        │
+│  - engine.rs: 状态机 (feed_key → commit/finish/reset)         │
+│  - userdict.rs: JSON 持久化 + 学习                             │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## 提交文本路径
+
+```
+用户选候选 → commit_candidate
+  → Engine.commit_candidate(idx) → EngineEvent::Commit("你好")
+  → commit_text():
+      1. XIM: XSetICValues(FnCommitString) → 客户端 GTK/Qt 插入文字
+      2. Fallback: XTestFakeKeyEvent 逐字符发送 (ASCII only)
+  → clear_preedit(): XIM_PREEDIT_STRING = ""
+```
+
+## Roadmap
+
+- [x] Phase 0: 工程化基础（git, lint, Makefile, CI）
+- [x] Phase 1: 音节表修正（去重+补缺失 → 412 音节）
+- [x] Phase 2: 词库扩充（85 → 5500+ 词）
+- [x] Phase 3: 用户词库持久化（JSON + 自动保存）
+- [x] Phase 4: IM 框架集成（XIM commit + XTest + cursor）
+- [x] Phase 5: 候选窗 UX 完善（分页 + XIM 原生投递）
+- [x] Phase 6: 工程化收尾（Makefile + README + CI）
+- [ ] Phase 7: fcitx5 addon 注册（真正出现在 IM 切换列表）
+- [ ] Phase 8: Wayland 支持（wlr-input-method protocol）
+- [ ] Phase 9: 云端 API 接入（ime.doubao.com）
+- [ ] Phase 10: LLM 联想 + 语音输入
+
+## 智能预测
+
+提交一个词后，候选窗会基于上下文预测下一个词：
+
+- **高频搭配表**（内置 bigram，如「你好」→ 吗 / 啊 / 世界）
+- **词库前缀补全**（词库里以该词开头的更长的词，只显示剩余部分）
+
+按 `空格/回车` 接受首选预测，`数字键` 选择，`Esc` 关闭预测。
+
+竖排候选最多 10 个，带序号，可鼠标点击选择。
+
+## fcitx5 插件（系统级接入）
+
+```bash
+sudo apt install libfcitx5core-dev   # 开发头文件
+make addon                           # 构建 librustime.so
+sudo ./scripts/install-fcitx5-addon.sh
+fcitx5-remote -r                     # 重启 fcitx5
+```
+
+安装后在 fcitx5 配置工具的输入法列表中添加 **rust-ime**。
+插件由 fcitx5 驱动按键、渲染候选窗并提交文本，不再需要 XRecord 或内置注入。
+
+## 设置中心
+
+候选窗右下角齿轮，或启动时加 `--settings` 打开：
+
+```bash
+./target/release/rust-ime-app --settings
+```
+
+- **通用**：候选数量（5–10）、智能预测、用户词库学习、开机自启
+- **外观**：深色/浅色主题、候选字号（实时预览）
+- **词库**：系统/用户词条统计、用户词库路径、一键清空
+- **关于**：版本与实现信息
+
+配置保存在 `~/.config/rust-ime/config.json`，用户词库在
+`~/.local/share/rust-ime/udict.txt`，修改即时生效。
+
+## Logo 与系统集成
+
+- 图标由 `scripts/gen-icons.py` 生成（圆角渐变 + 白色 R + 候选点），
+  输出 32/64/128/256/512 多尺寸
+- **系统托盘**：运行时常驻托盘，**左键点击 logo 打开设置中心**，
+  右键菜单为「设置中心 / 退出 rust-ime」
+- **应用菜单**：首次运行写入
+  `~/.local/share/applications/rust-ime.desktop` 与
+  `~/.local/share/icons/hicolor/256x256/apps/rust-ime.png`，
+  桌面应用菜单中显示 logo，点击进入设置
+
+## 零外部工具依赖
+
+程序自身完成所有依赖与环境准备，不需要用户手动安装或运行辅助命令：
+
+| 原先依赖 | 现状 |
+|----------|------|
+| `xdotool`（注入中文） | 内置 X11 keysym 重映射 + XTest 注入 |
+| `xclip` / 剪贴板 | 不需要 |
+| 手动装开机自启 | 设置中心开关 / 首次运行自动写入 |
+| 手动建桌面菜单项 | 首次运行自动写入 `.desktop` + 图标 |
+| 手动建配置/词库 | 自动创建 `~/.config/rust-ime`、`~/.local/share/rust-ime` |
+
+运行期只依赖桌面环境自带的系统库（X11、GTK、WebKitGTK、appindicator），
+这些由发行版默认提供。`fcitx5` 插件是可选的额外集成，不安装也不影响
+主程序工作。
+
+## 设置中心（按设计稿实现）
+
+界面按 `design-export/` 的墨色 + 金色设计系统重新实现：
+
+- **设置中心**：常用设置（候选数量、中英切换键、皮肤、自学习、智能预测、开机自启）、当前状态、快捷入口
+- **输入与候选**：输入方案、候选与预测、标点/模糊音（标注即将支持）、云输入、实时预览
+- **外观与皮肤**：深色/浅色主题卡片、候选字号、窗口样式说明、预览
+- **词库与自学习**：系统/用户词条 KPI、用户词表、自学习开关、导出、清空
+- **快捷键与手势**：已支持按键表、未支持项标注
+- **账户与云同步**：本地运行说明（当前版本不含云同步）
+- **关于与更新**：版本、引擎、接入方式、许可证
+
+设计令牌：背景 `#0c0e12`、面板 `#161a20`、主色 `#d4a853`、辅助色 `#4fd1c5`。
+候选窗同步改为金色主题。
+
+## fcitx5 插件：一键安装（无需 sudo、无需开发包）
+
+设置中心 → **系统接入** → 「安装插件」即可，程序会：
+
+1. 释放内置的 `librustime.so` 到 `~/.local/lib/fcitx5/`
+2. 写入 `~/.local/share/fcitx5/addon/rustime.conf`（Library 用绝对路径）
+3. 写入 `~/.local/share/fcitx5/inputmethod/rust-ime.conf`
+4. 把 `rust-ime` 加入 fcitx5 输入法组并设为默认（原配置备份为
+   `profile.bak-rustime`）
+5. 重启 fcitx5
+
+之后在 fcitx5 配置工具里就能看到并切换到 **rust-ime**。
+插件激活时，程序会自动停用自带的全局按键捕获，避免重复输入。
+
+命令行等价操作：
+
+```bash
+rust-ime --install-addon
+rust-ime --uninstall-addon
+```
+
+插件二进制已内置于程序中（`app/addons/librustime.so`）。
+如需重新构建：`./scripts/build-addon.sh`（用 `apt-get download` 取头文件，
+解包到本地 sysroot 编译，全程不需要 root）。
+
+## 候选窗：插件模式下使用自有 GUI
+
+fcitx5 插件把拼音与候选通过 Unix socket
+（`$XDG_RUNTIME_DIR/rust-ime/ui.sock`）推给 rust-ime 程序，由我们的
+墨色+金色候选窗在光标下方渲染；鼠标点击候选会回传选择给插件提交。
+
+- 程序未运行时，插件自动回退到 fcitx5 的 classicui 候选面板
+- 文本提交始终走 fcitx5 的 InputContext，不再需要 XTest 注入
+- `rust-ime --install-addon` 会自动拉起 UI 宿主（setsid 脱离终端）
+
+## 词库数据
+
+`crates/ime-engine/data/dict.txt` 由 `scripts/gen-dict.py` 生成：
+
+- 词条与词频来自 jieba 的词频表（MIT）
+- 拼音由 pypinyin 按词语上下文转换（多音字友好，MIT）
+- 取词频最高的 6 万条 1–4 字词
+
+长拼音输入（如整句）用 Viterbi 分词转换：`nihaoshijie` → 你好世界，
+`zhongguorenmin` → 中国人民；并始终保留原样拼音候选，不会出现“无候选”。

@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>rust-ime</title>
+    <style>
+      :root {
+        --bg: #161a20;
+        --fg: #e0e0e0;
+        --muted: #9aa0a8;
+        --accent: #d4a853;
+        --border: #262b33;
+      }
+      html, body {
+        margin: 0; padding: 0;
+        height: 100%;
+        overflow: hidden;
+        /* Opaque background: the desktop has no compositor, so an ARGB
+           transparent window would not render reliably. */
+        background: #161a20;
+        font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+        color: var(--fg);
+        user-select: none;
+      }
+      #app {
+        display: flex; flex-direction: column; gap: 6px;
+        padding: 8px 10px;
+        box-sizing: border-box;
+      }
+      #preedit {
+        font-size: 15px;
+        color: var(--muted);
+        min-height: 20px;
+        line-height: 20px;
+        letter-spacing: 0.5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      #candidates {
+        display: flex; flex-direction: column; gap: 3px;
+        overflow-y: auto;
+        scrollbar-width: thin;
+      }
+      #candidates::-webkit-scrollbar { width: 4px; }
+      #candidates::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+      .cand {
+        display: flex; align-items: center;
+        gap: 8px;
+        padding: 4px 8px;
+        min-height: 30px;
+        box-sizing: border-box;
+        border-radius: 5px;
+        font-size: var(--cand-size, 16px);
+        line-height: 20px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--border);
+        cursor: pointer;
+        white-space: nowrap;
+        transition: background 0.08s, border-color 0.08s;
+        text-align: left;
+      }
+      .cand:hover { background: rgba(255, 255, 255, 0.10); }
+      .cand.selected {
+        background: linear-gradient(180deg, rgba(212,168,83,.94), rgba(193,146,47,.88));
+        border-color: rgba(212,168,83,.85);
+        color: #1a1408;
+        font-weight: 600;
+      }
+      .cand .idx {
+        flex: 0 0 auto;
+        font-size: 11px; color: var(--muted); width: 12px;
+      }
+      .cand .txt {
+        flex: 1 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .cand .py {
+        flex: 0 0 auto; font-size: 11px; color: var(--muted);
+      }
+      .cand.selected .py, .cand.selected .idx { color: rgba(26, 20, 8, 0.62); }
+      #hint {
+        font-size: 11px; line-height: 14px; color: var(--muted);
+        display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      }
+      #gear {
+        flex: 0 0 auto; cursor: pointer; font-size: 13px;
+        color: var(--muted); padding: 0 4px; border-radius: 4px;
+      }
+      #gear:hover { color: var(--fg); background: rgba(255,255,255,0.08); }
+      #empty {
+        font-size: 13px; color: var(--muted); opacity: 0.7;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="preedit"></div>
+      <div id="candidates"><div id="empty">输入拼音以开始（例如 nihao → 你好）</div></div>
+      <div id="hint">
+        <span>空格 上屏 · 1-9 选择 · Esc 取消</span>
+        <span id="gear" title="输入法设置">⚙</span>
+      </div>
+    </div>
+    <script>
+      if (!window.__TAURI__) {
+        document.body.innerHTML =
+          '<div style="color:#ff6b6b;padding:10px;font-size:13px">' +
+          'Tauri API 未注入：请在 tauri.conf.json 中开启 app.withGlobalTauri' +
+          '</div>';
+      } else {
+      const { invoke } = window.__TAURI__.core;
+      const preeditEl = document.getElementById('preedit');
+      const candEl = document.getElementById('candidates');
+      const emptyEl = document.getElementById('empty');
+
+      let selectedIdx = 0;
+      let lastSize = '';
+
+      // Measure the real content (font metrics + DPI) and ask the backend to
+      // fit the window to it. Widths are CSS px; the backend converts to
+      // physical pixels so the viewport matches exactly.
+      function fitWindow() {
+        requestAnimationFrame(() => {
+          const app = document.getElementById('app');
+          const hint = document.getElementById('hint');
+          const texts = [...document.querySelectorAll('.cand .txt')]
+            .map((t) => t.scrollWidth + 58);
+          let width = Math.max(208, hint.scrollWidth, preeditEl.scrollWidth + 20, ...texts);
+          width = Math.min(420, width + 2);
+          const height = app.offsetHeight + 2;
+          const key = width + 'x' + height;
+          if (key === lastSize) return;
+          lastSize = key;
+          const dpr = window.devicePixelRatio || 1;
+          invoke('resize_candidate', {
+            width: Math.round(width * dpr),
+            height: Math.round(height * dpr),
+          }).catch(() => {});
+        });
+      }
+
+      function render(view) {
+        preeditEl.textContent = view.raw;
+        candEl.innerHTML = '';
+        if (!view.candidates.length) {
+          const d = document.createElement('div');
+          d.id = 'empty';
+          d.textContent = view.raw ? '（无候选）' : '输入拼音以开始（例如 nihao → 你好）';
+          candEl.appendChild(d);
+          fitWindow();
+          return;
+        }
+        selectedIdx = view.candidates.findIndex(c => c.selected);
+        if (selectedIdx < 0) selectedIdx = 0;
+        view.candidates.forEach((c, i) => {
+          const el = document.createElement('div');
+          el.className = 'cand' + (i === selectedIdx ? ' selected' : '');
+          const idx = document.createElement('span');
+          idx.className = 'idx';
+          idx.textContent = String(i + 1);
+          const main = document.createElement('span');
+          main.className = 'txt';
+          main.textContent = c.text;
+          el.appendChild(idx);
+          el.appendChild(main);
+          if (c.pinyin) {
+            const py = document.createElement('span');
+            py.className = 'py';
+            py.textContent = c.pinyin;
+            el.appendChild(py);
+          }
+          el.addEventListener('click', () => selectCandidate(i));
+          candEl.appendChild(el);
+        });
+        fitWindow();
+      }
+
+      async function selectCandidate(i) {
+        try { await invoke('commit_candidate', { idx: i }); } catch (e) { console.error(e); }
+      }
+
+      // Demo path: only active with ?demo=1 (window-focus keyboard capture).
+      // The real IME path is XRecord global grab → Rust backend; the webview
+      // is a passive renderer and must NOT capture keys.
+      const DEMO = new URLSearchParams(location.search).has('demo');
+      if (DEMO) {
+        window.addEventListener('keydown', async (e) => {
+          const k = e.key;
+          if (k === 'Backspace') { await invoke('feed_key', { key: 'backspace', ch: null }); e.preventDefault(); return; }
+          if (k === 'Enter') { await invoke('feed_key', { key: 'enter', ch: null }); e.preventDefault(); return; }
+          if (k === ' ') { await invoke('feed_key', { key: 'space', ch: null }); e.preventDefault(); return; }
+          if (k === 'Escape') { await invoke('feed_key', { key: 'escape', ch: null }); e.preventDefault(); return; }
+          if (k === 'ArrowLeft') { await invoke('feed_key', { key: 'left', ch: null }); e.preventDefault(); return; }
+          if (k === 'ArrowRight') { await invoke('feed_key', { key: 'right', ch: null }); e.preventDefault(); return; }
+          if (/^[1-9]$/.test(k)) { await invoke('feed_key', { key: 'digit' + k, ch: null }); e.preventDefault(); return; }
+          if (/^[a-zA-Z]$/.test(k)) { await invoke('feed_key', { key: k.toLowerCase(), ch: k.toLowerCase() }); e.preventDefault(); return; }
+        });
+      }
+
+      // Listen for preedit snapshots emitted by the engine.
+      window.__TAURI__.event.listen('preedit', (event) => {
+        render(event.payload);
+      });
+
+      // Wheel over the strip moves the highlight; click / Enter commits it.
+      window.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        invoke('move_selection', { delta: e.deltaY > 0 ? 1 : -1 }).catch(() => {});
+      }, { passive: false });
+
+      // Apply appearance settings (theme + font size) sent by the backend.
+      function applySettings(s) {
+        const root = document.documentElement;
+        if (s.theme === 'light') {
+          root.style.setProperty('--fg', '#1a1d24');
+          root.style.setProperty('--muted', '#6b7280');
+          root.style.setProperty('--border', 'rgba(0,0,0,0.10)');
+          document.body.style.background = '#f4f6fb';
+        } else {
+          root.style.setProperty('--fg', '#e0e0e0');
+          root.style.setProperty('--muted', '#9aa0a8');
+          root.style.setProperty('--border', '#262b33');
+          document.body.style.background = '#161a20';
+        }
+        document.documentElement.style.setProperty('--cand-size', (s.font_size || 16) + 'px');
+      }
+      window.__TAURI__.event.listen('settings', (event) => applySettings(event.payload));
+      window.__TAURI__.core.invoke('get_settings').then(applySettings).catch(() => {});
+
+      document.getElementById('gear').addEventListener('click', () => {
+        window.__TAURI__.core.invoke('open_settings').catch(() => {});
+      });
+
+      // Focus the body so keydown fires.
+      window.addEventListener('load', () => { document.body.focus(); });
+      } // end Tauri-API guard
+    </script>
+  </body>
+</html>
