@@ -1,6 +1,8 @@
 /target
 /dist
 **/*.so
+# The prebuilt fcitx5 addon is embedded into the app at build time.
+!app/addons/librustime.so
 **/*.dll
 **/*.dylib
 .DS_Store
