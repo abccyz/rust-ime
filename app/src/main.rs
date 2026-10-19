@@ -444,6 +444,15 @@ fn uninstall_fcitx5_addon() -> Result<String, String> {
 static UI_STREAM: std::sync::Mutex<Option<std::os::unix::net::UnixStream>> =
     std::sync::Mutex::new(None);
 
+/// Latest update from the addon. The IPC reader only stores it; a UI thread
+/// applies at most one update every ~16 ms so a slow webview can never build
+/// a backlog (which made the candidate window look frozen).
+static LATEST_UI: std::sync::Mutex<Option<UiEvent>> = std::sync::Mutex::new(None);
+static UI_DIRTY: AtomicBool = AtomicBool::new(false);
+type RenderKey = (String, Vec<String>, i32, i32);
+/// Last rendered content, to skip redundant window operations.
+static LAST_RENDERED: std::sync::Mutex<Option<RenderKey>> = std::sync::Mutex::new(None);
+
 #[derive(serde::Deserialize)]
 struct UiEvent {
     preedit: String,
@@ -458,6 +467,19 @@ fn handle_ui_event(app: &AppHandle, ev: UiEvent) {
         return;
     };
     let active = !ev.preedit.is_empty() || !ev.candidates.is_empty();
+
+    // Skip redundant work when nothing visible changed.
+    let key = (ev.preedit.clone(), ev.candidates.clone(), ev.x, ev.y);
+    {
+        let Ok(mut last) = LAST_RENDERED.lock() else {
+            return;
+        };
+        if last.as_ref() == Some(&key) {
+            return;
+        }
+        *last = Some(key);
+    }
+
     if !active {
         let _ = win.hide();
         return;
@@ -516,6 +538,23 @@ fn start_ui_server(app: AppHandle) {
     };
     eprintln!("[rust-ime] candidate UI socket: {path}");
 
+    // Coalescing UI thread: renders at most ~60 updates per second.
+    {
+        let app = app.clone();
+        std::thread::Builder::new()
+            .name("ime-ui-render".into())
+            .spawn(move || loop {
+                if UI_DIRTY.swap(false, Ordering::SeqCst) {
+                    let ev = LATEST_UI.lock().ok().and_then(|mut s| s.take());
+                    if let Some(ev) = ev {
+                        handle_ui_event(&app, ev);
+                    }
+                }
+                std::thread::sleep(std::time::Duration::from_millis(16));
+            })
+            .ok();
+    }
+
     std::thread::Builder::new()
         .name("ime-ui-ipc".into())
         .spawn(move || {
@@ -527,18 +566,30 @@ fn start_ui_server(app: AppHandle) {
                         *slot = Some(clone);
                     }
                 }
-                let app = app.clone();
                 std::thread::spawn(move || {
                     let reader = BufReader::new(stream);
                     for line in reader.lines() {
                         let Ok(line) = line else { break };
                         if let Ok(ev) = serde_json::from_str::<UiEvent>(&line) {
-                            handle_ui_event(&app, ev);
+                            if let Ok(mut slot) = LATEST_UI.lock() {
+                                *slot = Some(ev);
+                            }
+                            UI_DIRTY.store(true, Ordering::SeqCst);
                         }
                     }
                     if let Ok(mut slot) = UI_STREAM.lock() {
                         *slot = None;
                     }
+                    if let Ok(mut slot) = LATEST_UI.lock() {
+                        *slot = Some(UiEvent {
+                            preedit: String::new(),
+                            candidates: Vec::new(),
+                            x: 0,
+                            y: 0,
+                            h: 0,
+                        });
+                    }
+                    UI_DIRTY.store(true, Ordering::SeqCst);
                 });
             }
         })
@@ -818,8 +869,9 @@ fn commit_candidate(app: AppHandle, state: State<AppState>, idx: usize) -> Resul
     // fcitx5 mode: forward the selection to the addon.
     if let Ok(mut slot) = UI_STREAM.lock() {
         if let Some(stream) = slot.as_mut() {
+            let _ = stream.set_nonblocking(true);
             use std::io::Write;
-            let _ = stream.write_all(format!("S{idx}\n").as_bytes());
+            let _ = stream.write(format!("S{idx}\n").as_bytes());
             return Ok(String::new());
         }
     }
