@@ -223,7 +223,7 @@ impl CandidateEngine {
                 let ns = score_i + add - SEGMENT_PENALTY;
                 let better = best[i + len]
                     .as_ref()
-                    .map_or(true, |(s, _)| ns > *s);
+                    .is_none_or(|(s, _)| ns > *s);
                 if better {
                     best[i + len] = Some((ns, format!("{text_i}{word}")));
                 }
