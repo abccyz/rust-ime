@@ -14,6 +14,10 @@ use x11_dl::xlib;
 /// App / tray icon (embedded for the tray and the desktop entry).
 const ICON_PNG: &[u8] = include_bytes!("../icons/256x256.png");
 
+/// Prebuilt fcitx5 addon (built by scripts/build-addon.sh). Embedded so the
+/// app can install it to the user's fcitx5 without sudo or a compiler.
+const ADDON_SO: &[u8] = include_bytes!("../addons/librustime.so");
+
 /// Whether the IME is in Chinese (pinyin) mode. Toggled by Ctrl+Space.
 static IME_ACTIVE: AtomicBool = AtomicBool::new(true);
 
@@ -266,6 +270,125 @@ fn set_fcitx5(enabled: bool) -> Result<(), String> {
         .spawn()
         .map_err(|e| format!("无法执行 {program}: {e}"))?;
     Ok(())
+}
+
+// ── fcitx5 addon install (user-level, no sudo) ──────────────────────────
+
+fn fcitx5_user_paths() -> (std::path::PathBuf, std::path::PathBuf) {
+    let home = std::env::var("HOME").unwrap_or_default();
+    (
+        std::path::PathBuf::from(format!("{home}/.local/share/fcitx5")),
+        std::path::PathBuf::from(format!("{home}/.local/lib/fcitx5")),
+    )
+}
+
+/// Whether fcitx5 has our addon installed in the user's data dir.
+fn fcitx5_addon_installed() -> bool {
+    let (data, lib) = fcitx5_user_paths();
+    data.join("addon/rustime.conf").exists()
+        && data.join("inputmethod/rust-ime.conf").exists()
+        && lib.join("librustime.so").exists()
+}
+
+/// The addon is active when installed and fcitx5 is running.
+fn fcitx5_addon_active() -> bool {
+    fcitx5_addon_installed() && process_running("fcitx5")
+}
+
+/// Insert rust-ime into the fcitx5 profile and make it the default IM.
+fn update_fcitx5_profile() -> std::io::Result<()> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let dir = format!("{home}/.config/fcitx5");
+    std::fs::create_dir_all(&dir)?;
+    let path = format!("{dir}/profile");
+    let mut s = std::fs::read_to_string(&path).unwrap_or_default();
+    if s.trim().is_empty() {
+        s = "[Groups/0]\nName=默认\nDefault Layout=us\nDefaultIM=keyboard-us\n\n[GroupOrder]\n0=默认\n"
+            .to_string();
+    }
+    let _ = std::fs::write(format!("{path}.bak-rustime"), &s);
+
+    if !s.contains("Name=rust-ime") {
+        let mut max_idx: i32 = -1;
+        for line in s.lines() {
+            if let Some(rest) = line.strip_prefix("[Groups/0/Items/") {
+                if let Some(n) = rest.split(']').next().and_then(|n| n.parse().ok()) {
+                    max_idx = max_idx.max(n);
+                }
+            }
+        }
+        let item = format!(
+            "\n[Groups/0/Items/{}]\nName=rust-ime\nLayout=\n",
+            max_idx + 1
+        );
+        match s.find("[GroupOrder]") {
+            Some(pos) => s.insert_str(pos, &item),
+            None => s.push_str(&item),
+        }
+    }
+
+    // Set DefaultIM=rust-ime inside the first group block.
+    if let Some(start) = s.find("[Groups/0]") {
+        if let Some(rel) = s[start..].find("DefaultIM=") {
+            let abs = start + rel;
+            if let Some(len) = s[abs..].find('\n') {
+                s.replace_range(abs..abs + len, "DefaultIM=rust-ime");
+            }
+        }
+    }
+
+    std::fs::write(&path, s)
+}
+
+/// Install the embedded addon into the user's fcitx5 and restart it.
+fn do_install_fcitx5_addon() -> Result<String, String> {
+    let (data, lib) = fcitx5_user_paths();
+    let addon_dir = data.join("addon");
+    let im_dir = data.join("inputmethod");
+    std::fs::create_dir_all(&addon_dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&im_dir).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&lib).map_err(|e| e.to_string())?;
+
+    std::fs::write(lib.join("librustime.so"), ADDON_SO)
+        .map_err(|e| format!("写入插件失败: {e}"))?;
+
+    let conf = format!(
+        "[Addon]\nName=rust-ime\nComment=Rust pinyin input method\nCategory=InputMethod\nVersion={}\nLibrary={}\nType=SharedLibrary\nOnDemand=True\nConfigurable=False\n\n[Addon/Dependencies]\n0=core\n",
+        env!("CARGO_PKG_VERSION"),
+        lib.join("librustime").display()
+    );
+    std::fs::write(addon_dir.join("rustime.conf"), conf)
+        .map_err(|e| format!("写入 addon 配置失败: {e}"))?;
+
+    let im = "[InputMethod]\nName=rust-ime\nIcon=fcitx-pinyin\nLabel=理\nLangCode=zh_CN\nAddon=rustime\nConfigurable=False\n";
+    std::fs::write(im_dir.join("rust-ime.conf"), im)
+        .map_err(|e| format!("写入输入法配置失败: {e}"))?;
+
+    update_fcitx5_profile().map_err(|e| format!("更新 fcitx5 配置失败: {e}"))?;
+
+    // Restart fcitx5 so it picks up the new addon.
+    let _ = std::process::Command::new("fcitx5").args(["-d", "-r"]).spawn();
+    Ok("已安装 fcitx5 插件，并设为默认输入法".to_string())
+}
+
+#[tauri::command]
+fn install_fcitx5_addon() -> Result<String, String> {
+    do_install_fcitx5_addon()
+}
+
+/// Remove the addon from the user's fcitx5.
+fn do_uninstall_fcitx5_addon() -> Result<String, String> {
+    let (data, lib) = fcitx5_user_paths();
+    let _ = std::fs::remove_file(data.join("addon/rustime.conf"));
+    let _ = std::fs::remove_file(data.join("inputmethod/rust-ime.conf"));
+    let _ = std::fs::remove_file(lib.join("librustime.so"));
+    let _ = std::process::Command::new("fcitx5").args(["-d", "-r"]).spawn();
+    Ok("已卸载 fcitx5 插件".to_string())
+}
+
+#[tauri::command]
+fn uninstall_fcitx5_addon() -> Result<String, String> {
+    do_uninstall_fcitx5_addon()
 }
 
 #[tauri::command]
@@ -640,6 +763,10 @@ fn toggle_ime(app: &AppHandle) {
 
 /// Handle a grabbed key: decide whether to consume (IME mode) or pass through.
 fn handle_grabbed_key(app: &AppHandle, gk: &GrabbedKey) {
+    // fcitx5 owns input when our addon is active; ignore our own captures.
+    if fcitx5_addon_active() {
+        return;
+    }
     // Ignore the synthetic keys we ourselves inject.
     if INJECTING.load(Ordering::SeqCst) {
         return;
@@ -775,6 +902,28 @@ fn single_instance() -> Option<std::os::unix::net::UnixListener> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Headless maintenance entry points.
+    if std::env::args().any(|a| a == "--install-addon") {
+        match do_install_fcitx5_addon() {
+            Ok(m) => println!("{m}"),
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+    if std::env::args().any(|a| a == "--uninstall-addon") {
+        match do_uninstall_fcitx5_addon() {
+            Ok(m) => println!("{m}"),
+            Err(e) => {
+                eprintln!("error: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     let _instance = match single_instance() {
         Some(l) => l,
         None => {
@@ -851,15 +1000,24 @@ pub fn run() {
                 }
             }
 
-            // Start the key grabber (opens its own X11 connection).
-            match KeyGrabber::start(tx) {
-                Ok(grabber) => {
-                    // Keep the grabber alive for the app's lifetime.
-                    std::mem::forget(grabber);
-                    eprintln!("[rust-ime] global key grabber started");
-                }
-                Err(e) => {
-                    eprintln!("[rust-ime] keygrab failed: {e}");
+            // If the fcitx5 addon is installed and fcitx5 is running, fcitx5
+            // owns key handling — starting our own global grab would double
+            // every keystroke.
+            if fcitx5_addon_active() {
+                eprintln!(
+                    "[rust-ime] fcitx5 addon active — standalone key grab disabled"
+                );
+            } else {
+                // Start the key grabber (opens its own X11 connection).
+                match KeyGrabber::start(tx) {
+                    Ok(grabber) => {
+                        // Keep the grabber alive for the app's lifetime.
+                        std::mem::forget(grabber);
+                        eprintln!("[rust-ime] global key grabber started");
+                    }
+                    Err(e) => {
+                        eprintln!("[rust-ime] keygrab failed: {e}");
+                    }
                 }
             }
 
@@ -885,6 +1043,8 @@ pub fn run() {
             get_stats,
             get_system_status,
             set_fcitx5,
+            install_fcitx5_addon,
+            uninstall_fcitx5_addon,
             clear_user_dict,
             list_user_words,
             export_user_dict,

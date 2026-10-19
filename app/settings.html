@@ -425,8 +425,12 @@
         <div class="panel-head"><h2>接入方式</h2></div>
         <article class="lrow"><div class="lrow-t"><div class="lrow-l">独立 X11 模式</div><div class="lrow-h">直接运行，全局捕获按键，无需额外配置</div></div>
           <div class="lrow-c"><span class="tag ok" id="sysStandalone">当前使用</span></div></article>
-        <article class="lrow"><div class="lrow-t"><div class="lrow-l">fcitx5 插件</div><div class="lrow-h">随 fcitx5 启动，与其他输入法并列，可自由切换（可选）</div></div>
-          <div class="lrow-c"><span class="tag" id="sysAddon">—</span></div></article>
+        <article class="lrow"><div class="lrow-t"><div class="lrow-l">fcitx5 插件</div><div class="lrow-h">随 fcitx5 启动，与其他输入法并列，可自由切换（推荐）</div></div>
+          <div class="lrow-c">
+            <span class="tag" id="sysAddon">—</span>
+            <button class="btn primary" id="installAddon">安装插件</button>
+            <button class="btn danger" id="uninstallAddon">卸载</button>
+          </div></article>
       </section>
 
       <section class="panel">
@@ -876,6 +880,8 @@ async function refreshSystem() {
     setTag('sysX11', st.x11_ok, '已连接', '不可用');
     setTag('sysGrab', st.x11_ok, '已启用', '不可用');
     setTag('sysAddon', st.fcitx5_addon_installed, '已安装', '未安装');
+    $('installAddon').style.display = st.fcitx5_addon_installed ? 'none' : '';
+    $('uninstallAddon').style.display = st.fcitx5_addon_installed ? '' : 'none';
     setTag('sysFcitxTag', st.fcitx5_running, '运行中', '未运行');
     setTag('sysStandalone', st.mode === 'standalone', '当前使用', '—');
     $('sysAutostart').classList.toggle('on', st.autostart_enabled);
@@ -885,6 +891,21 @@ async function refreshSystem() {
       : '未检测到 fcitx5，当前输入法可独占按键';
   } catch (e) { console.error(e); }
 }
+
+$('installAddon').addEventListener('click', async () => {
+  try {
+    const msg = await invoke('install_fcitx5_addon');
+    toast(msg);
+    setTimeout(refreshSystem, 1600);
+  } catch (e) { toast('安装失败: ' + e); }
+});
+$('uninstallAddon').addEventListener('click', async () => {
+  try {
+    await invoke('uninstall_fcitx5_addon');
+    toast('已卸载 fcitx5 插件');
+    setTimeout(refreshSystem, 1400);
+  } catch (e) { toast('卸载失败: ' + e); }
+});
 
 $('stopFcitx5').addEventListener('click', async () => {
   try { await invoke('set_fcitx5', { enabled: false }); toast('已停用 fcitx5'); setTimeout(refreshSystem, 900); }

@@ -180,8 +180,8 @@ private:
                 char cbuf[512];
                 int cn = rust_ime_candidate(h, i, cbuf, sizeof(cbuf));
                 if (cn > 0) {
-                    list->append<fcitx::Text>(
-                        std::string(cbuf, static_cast<size_t>(cn)));
+                    list->append<fcitx::DisplayOnlyCandidateWord>(
+                        fcitx::Text(std::string(cbuf, static_cast<size_t>(cn))));
                 }
             }
             ic->inputPanel().setCandidateList(std::move(list));

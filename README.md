@@ -261,3 +261,28 @@ fcitx5-remote -r                     # 重启 fcitx5
 
 设计令牌：背景 `#0c0e12`、面板 `#161a20`、主色 `#d4a853`、辅助色 `#4fd1c5`。
 候选窗同步改为金色主题。
+
+## fcitx5 插件：一键安装（无需 sudo、无需开发包）
+
+设置中心 → **系统接入** → 「安装插件」即可，程序会：
+
+1. 释放内置的 `librustime.so` 到 `~/.local/lib/fcitx5/`
+2. 写入 `~/.local/share/fcitx5/addon/rustime.conf`（Library 用绝对路径）
+3. 写入 `~/.local/share/fcitx5/inputmethod/rust-ime.conf`
+4. 把 `rust-ime` 加入 fcitx5 输入法组并设为默认（原配置备份为
+   `profile.bak-rustime`）
+5. 重启 fcitx5
+
+之后在 fcitx5 配置工具里就能看到并切换到 **rust-ime**。
+插件激活时，程序会自动停用自带的全局按键捕获，避免重复输入。
+
+命令行等价操作：
+
+```bash
+rust-ime --install-addon
+rust-ime --uninstall-addon
+```
+
+插件二进制已内置于程序中（`app/addons/librustime.so`）。
+如需重新构建：`./scripts/build-addon.sh`（用 `apt-get download` 取头文件，
+解包到本地 sysroot 编译，全程不需要 root）。
