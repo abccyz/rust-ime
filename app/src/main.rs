@@ -94,6 +94,11 @@ fn snapshot(server: &ImeServer) -> PreeditView {
     }
 }
 
+/// The X11 window that had keyboard focus before the candidate window showed.
+/// Restored before injecting text so keystrokes reach the real app, not our
+/// always-on-top candidate strip.
+static PREV_FOCUS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 fn emit_preedit(app: &AppHandle, server: &ImeServer) {
     let Some(win) = app.get_webview_window("main") else {
         return;
@@ -103,6 +108,12 @@ fn emit_preedit(app: &AppHandle, server: &ImeServer) {
     let _ = win.emit("preedit", snap);
 
     if active {
+        // Snapshot the focused window BEFORE we show our always-on-top strip.
+        let focus = keygrab::get_input_focus().unwrap_or(0) as u64;
+        if focus != 0 && PREV_FOCUS.load(Ordering::SeqCst) == 0 {
+            PREV_FOCUS.store(focus, Ordering::SeqCst);
+        }
+
         // Candidate strip is a fixed 520x96 (logical px).
         let _ = win.set_size(tauri::LogicalSize::new(520.0, 96.0));
         // Place it just below-right of the pointer.
@@ -115,8 +126,15 @@ fn emit_preedit(app: &AppHandle, server: &ImeServer) {
             None => eprintln!("[rust-ime] pointer_pos returned None"),
         }
         let _ = win.show();
+
+        // Do not let the strip keep focus (it would swallow injected text).
+        let prev = PREV_FOCUS.load(Ordering::SeqCst);
+        if prev != 0 {
+            keygrab::set_input_focus(prev as std::os::raw::c_ulong);
+        }
     } else {
         let _ = win.hide();
+        PREV_FOCUS.store(0, Ordering::SeqCst);
     }
 }
 
@@ -129,6 +147,15 @@ static LEAKED_CHARS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicU
 /// inject the committed text. Both run in one ordered `xdotool` invocation
 /// (UTF-8/CJK capable).
 fn commit_text(_app: &AppHandle, _server: &ImeServer, text: &str) {
+    // Restore keyboard focus to the app the user was typing into. Without
+    // this the always-on-top candidate strip may hold focus and swallow the
+    // injected text.
+    let prev = PREV_FOCUS.load(Ordering::SeqCst);
+    if prev != 0 {
+        keygrab::set_input_focus(prev as std::os::raw::c_ulong);
+        std::thread::sleep(std::time::Duration::from_millis(30));
+    }
+
     let leaked = LEAKED_CHARS.swap(0, Ordering::SeqCst);
     if leaked == 0 && text.is_empty() {
         return;

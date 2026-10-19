@@ -328,8 +328,7 @@ pub fn send_backspaces(n: usize) {
 
 /// Current pointer position in root coordinates (dispatch connection).
 /// Used to place the candidate window near the caret.
-pub fn pointer_pos() -> Option<(i32, i32)> {
-    let display = aux_display();
+pub fn pointer_pos() -> Option<(i32, i32)> {    let display = aux_display();
     if display.is_null() {
         return None;
     }
@@ -364,5 +363,51 @@ pub fn pointer_pos() -> Option<(i32, i32)> {
         } else {
             None
         }
+    }
+}
+
+// ── Input focus helpers (dispatch connection) ─────────────────────────────
+//
+// The candidate window must never steal keyboard focus from the app the user
+// is typing into. We snapshot the focused window before showing it and
+// restore focus right before injecting the committed text.
+
+/// Returns the currently focused X11 window (None if None/PointerRoot).
+pub fn get_input_focus() -> Option<c_ulong> {
+    let display = aux_display();
+    if display.is_null() {
+        return None;
+    }
+    unsafe {
+        let xl = match xlib::Xlib::open() {
+            Ok(x) => x,
+            Err(_) => return None,
+        };
+        let mut focus: c_ulong = 0;
+        let mut revert: c_int = 0;
+        (xl.XGetInputFocus)(display, &mut focus, &mut revert);
+        // 0 = None, 1 = PointerRoot — not real windows.
+        if focus <= 1 {
+            None
+        } else {
+            Some(focus)
+        }
+    }
+}
+
+/// Restore keyboard focus to `win`.
+pub fn set_input_focus(win: c_ulong) {
+    let display = aux_display();
+    if display.is_null() {
+        return;
+    }
+    unsafe {
+        let xl = match xlib::Xlib::open() {
+            Ok(x) => x,
+            Err(_) => return,
+        };
+        // RevertToPointerRoot = 1, CurrentTime = 0
+        (xl.XSetInputFocus)(display, win, 1, 0);
+        (xl.XFlush)(display);
     }
 }

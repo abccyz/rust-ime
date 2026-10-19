@@ -16,7 +16,9 @@
         margin: 0; padding: 0;
         height: 100%;
         overflow: hidden;
-        background: transparent;
+        /* Opaque background: the desktop has no compositor, so an ARGB
+           transparent window would not render reliably. */
+        background: #1e2028;
         font-family: -apple-system, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
         color: var(--fg);
         user-select: none;
