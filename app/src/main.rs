@@ -535,13 +535,35 @@ fn handle_ui_event(app: &AppHandle, ev: UiEvent) {
         return;
     }
 
+    // Size the strip to its content instead of a fixed 520 px: short words
+    // should not leave a wide empty band, long sentences still cap out.
+    let font = app
+        .state::<AppState>()
+        .settings
+        .lock()
+        .map(|s| s.font_size.max(13) as f64)
+        .unwrap_or(16.0);
+    let text_width = |t: &str| -> f64 {
+        t.chars()
+            .map(|c| if c.is_ascii() { font * 0.56 } else { font })
+            .sum()
+    };
+    let widest = ev.candidates.iter().map(|c| text_width(c)).fold(0.0, f64::max);
+    let preedit_w = text_width(&ev.preedit) * 15.0 / font;
+    let width = (widest + 64.0).max(preedit_w + 40.0).clamp(208.0, 400.0);
     let n = ev.candidates.len();
     let height = if n == 0 {
-        90.0
+        72.0
     } else {
-        (74.0 + n as f64 * 36.0).min(470.0)
+        (59.0 + n as f64 * 33.0).min(420.0)
     };
-    let _ = win.set_size(tauri::LogicalSize::new(520.0, height));
+    // Physical pixels so the CSS viewport matches our CSS-unit estimate
+    // regardless of the GTK scale factor (devicePixelRatio).
+    let scale = win.scale_factor().unwrap_or(1.0);
+    let _ = win.set_size(tauri::PhysicalSize::new(
+        (width * scale).round() as u32,
+        (height * scale).round() as u32,
+    ));
     // fcitx5 gives the caret rect in screen coordinates.
     let _ = win.set_position(tauri::PhysicalPosition::new(
         ev.x + 4,
@@ -953,6 +975,17 @@ fn commit_candidate(app: AppHandle, state: State<AppState>, idx: usize) -> Resul
         }
     }
     Ok(committed)
+}
+
+/// Fit the candidate window to the size measured by the webview (physical px).
+#[tauri::command]
+fn resize_candidate(app: AppHandle, width: f64, height: f64) {
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.set_size(tauri::PhysicalSize::new(
+            width.clamp(160.0, 900.0) as u32,
+            height.clamp(40.0, 1400.0) as u32,
+        ));
+    }
 }
 
 /// Move the candidate highlight (arrow keys / mouse wheel).
@@ -1421,6 +1454,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             feed_key,
             commit_candidate,
+            resize_candidate,
             move_selection,
             select_candidate,
             reset_engine,

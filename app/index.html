@@ -24,29 +24,36 @@
         user-select: none;
       }
       #app {
-        display: flex; flex-direction: column; gap: 8px;
-        padding: 10px 12px;
+        display: flex; flex-direction: column; gap: 6px;
+        padding: 8px 10px;
+        box-sizing: border-box;
       }
       #preedit {
         font-size: 15px;
         color: var(--muted);
         min-height: 20px;
+        line-height: 20px;
         letter-spacing: 0.5px;
-        word-break: break-all;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
       }
       #candidates {
-        display: flex; flex-direction: column; gap: 4px;
+        display: flex; flex-direction: column; gap: 3px;
         overflow-y: auto;
         scrollbar-width: thin;
       }
       #candidates::-webkit-scrollbar { width: 4px; }
       #candidates::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
       .cand {
-        display: flex; align-items: center; justify-content: space-between;
-        gap: 10px;
-        padding: 5px 10px;
-        border-radius: 6px;
+        display: flex; align-items: center;
+        gap: 8px;
+        padding: 4px 8px;
+        min-height: 30px;
+        box-sizing: border-box;
+        border-radius: 5px;
         font-size: var(--cand-size, 16px);
+        line-height: 20px;
         background: rgba(255, 255, 255, 0.04);
         border: 1px solid var(--border);
         cursor: pointer;
@@ -65,13 +72,17 @@
         flex: 0 0 auto;
         font-size: 11px; color: var(--muted); width: 12px;
       }
-      .cand .txt { flex: 1 1 auto; }
+      .cand .txt {
+        flex: 1 1 auto;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
       .cand .py {
         flex: 0 0 auto; font-size: 11px; color: var(--muted);
       }
       .cand.selected .py, .cand.selected .idx { color: rgba(26, 20, 8, 0.62); }
       #hint {
-        font-size: 11px; color: var(--muted);
+        font-size: 11px; line-height: 14px; color: var(--muted);
         display: flex; align-items: center; justify-content: space-between; gap: 8px;
       }
       #gear {
@@ -89,7 +100,7 @@
       <div id="preedit"></div>
       <div id="candidates"><div id="empty">输入拼音以开始（例如 nihao → 你好）</div></div>
       <div id="hint">
-        <span>空格/回车 = 提交首选 · 数字键 = 选择 · Esc = 清除</span>
+        <span>空格 上屏 · 1-9 选择 · Esc 取消</span>
         <span id="gear" title="输入法设置">⚙</span>
       </div>
     </div>
@@ -106,6 +117,30 @@
       const emptyEl = document.getElementById('empty');
 
       let selectedIdx = 0;
+      let lastSize = '';
+
+      // Measure the real content (font metrics + DPI) and ask the backend to
+      // fit the window to it. Widths are CSS px; the backend converts to
+      // physical pixels so the viewport matches exactly.
+      function fitWindow() {
+        requestAnimationFrame(() => {
+          const app = document.getElementById('app');
+          const hint = document.getElementById('hint');
+          const texts = [...document.querySelectorAll('.cand .txt')]
+            .map((t) => t.scrollWidth + 58);
+          let width = Math.max(208, hint.scrollWidth, preeditEl.scrollWidth + 20, ...texts);
+          width = Math.min(420, width + 2);
+          const height = app.offsetHeight + 2;
+          const key = width + 'x' + height;
+          if (key === lastSize) return;
+          lastSize = key;
+          const dpr = window.devicePixelRatio || 1;
+          invoke('resize_candidate', {
+            width: Math.round(width * dpr),
+            height: Math.round(height * dpr),
+          }).catch(() => {});
+        });
+      }
 
       function render(view) {
         preeditEl.textContent = view.raw;
@@ -115,6 +150,7 @@
           d.id = 'empty';
           d.textContent = view.raw ? '（无候选）' : '输入拼音以开始（例如 nihao → 你好）';
           candEl.appendChild(d);
+          fitWindow();
           return;
         }
         selectedIdx = view.candidates.findIndex(c => c.selected);
@@ -128,13 +164,18 @@
           const main = document.createElement('span');
           main.className = 'txt';
           main.textContent = c.text;
-          const py = document.createElement('span');
-          py.className = 'py';
-          py.textContent = c.pinyin;
-          el.appendChild(idx); el.appendChild(main); el.appendChild(py);
+          el.appendChild(idx);
+          el.appendChild(main);
+          if (c.pinyin) {
+            const py = document.createElement('span');
+            py.className = 'py';
+            py.textContent = c.pinyin;
+            el.appendChild(py);
+          }
           el.addEventListener('click', () => selectCandidate(i));
           candEl.appendChild(el);
         });
+        fitWindow();
       }
 
       async function selectCandidate(i) {

@@ -15,8 +15,8 @@
       {
         "label": "main",
         "title": "rust-ime",
-        "width": 520,
-        "height": 124,
+        "width": 260,
+        "height": 100,
         "resizable": true,
         "alwaysOnTop": true,
         "skipTaskbar": true,
