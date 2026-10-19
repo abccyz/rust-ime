@@ -149,6 +149,21 @@ impl CandidateEngine {
         &mut self.user
     }
 
+    /// Number of system (built-in) entries.
+    pub fn system_len(&self) -> usize {
+        self.sys.len()
+    }
+
+    /// Number of learned user entries.
+    pub fn user_len(&self) -> usize {
+        self.user.len()
+    }
+
+    /// Drop all learned user entries.
+    pub fn clear_user(&mut self) {
+        self.user = Dictionary::new();
+    }
+
     /// Predict the next word(s) after `context` (the last committed text).
     ///
     /// Two sources:

@@ -1,0 +1,477 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>rust-ime 设置</title>
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1d212b;
+    --border: rgba(255,255,255,0.07);
+    --text: #e8eaf0;
+    --muted: #8b93a7;
+    --accent: #4f8cff;
+    --accent-dim: rgba(79,140,255,0.14);
+    --ok: #35c47a;
+    --danger: #ff6b6b;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, "PingFang SC", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    overflow: hidden;
+    user-select: none;
+  }
+  #app { display: flex; height: 100%; }
+
+  /* ── Sidebar ─────────────────────────────────────────── */
+  aside {
+    width: 210px; flex: 0 0 210px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    padding: 18px 12px;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 20px; }
+  .logo {
+    width: 32px; height: 32px; border-radius: 9px;
+    background: linear-gradient(135deg, #4f8cff, #7b5cff);
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 15px; color: #fff;
+  }
+  .brand .name { font-weight: 600; font-size: 15px; letter-spacing: .3px; }
+  .brand .ver { font-size: 11px; color: var(--muted); }
+  nav { display: flex; flex-direction: column; gap: 4px; }
+  nav button {
+    all: unset; cursor: pointer;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: 9px;
+    color: var(--muted); font-size: 13.5px;
+    transition: background .15s, color .15s;
+  }
+  nav button .ico { width: 16px; text-align: center; opacity: .9; }
+  nav button:hover { background: rgba(255,255,255,0.04); color: var(--text); }
+  nav button.active { background: var(--accent-dim); color: var(--accent); }
+  .sidebar-foot { margin-top: auto; padding: 10px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+
+  /* ── Content ─────────────────────────────────────────── */
+  main { flex: 1; overflow-y: auto; padding: 26px 34px 40px; }
+  main::-webkit-scrollbar { width: 8px; }
+  main::-webkit-scrollbar-thumb { background: rgba(255,255,255,.09); border-radius: 4px; }
+  section { display: none; max-width: 700px; }
+  section.active { display: block; animation: fade .18s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  h1 { font-size: 21px; margin: 0 0 6px; font-weight: 600; }
+  .sub { color: var(--muted); font-size: 13px; margin: 0 0 22px; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 6px 18px;
+    margin-bottom: 16px;
+  }
+  .row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 24px; padding: 15px 0;
+  }
+  .row + .row { border-top: 1px solid var(--border); }
+  .row .label { font-size: 14px; }
+  .row .desc { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.45; }
+  .row .control { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; }
+
+  /* toggle */
+  .switch { position: relative; width: 44px; height: 24px; flex: 0 0 auto; cursor: pointer; }
+  .switch input { display: none; }
+  .switch span {
+    position: absolute; inset: 0; border-radius: 999px;
+    background: #2a2f3d; transition: background .18s;
+  }
+  .switch span::after {
+    content: ""; position: absolute; top: 3px; left: 3px;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: #fff; transition: transform .18s;
+  }
+  .switch input:checked + span { background: var(--accent); }
+  .switch input:checked + span::after { transform: translateX(20px); }
+
+  /* slider */
+  input[type=range] {
+    -webkit-appearance: none; width: 180px; height: 4px;
+    background: #2a2f3d; border-radius: 2px; outline: none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 16px; height: 16px;
+    border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 0 4px rgba(79,140,255,.15); cursor: pointer;
+  }
+  .num {
+    min-width: 34px; text-align: center; font-variant-numeric: tabular-nums;
+    color: var(--accent); font-weight: 600; font-size: 13px;
+  }
+
+  /* segmented */
+  .seg { display: flex; background: #222734; border-radius: 9px; padding: 3px; gap: 2px; }
+  .seg button {
+    all: unset; cursor: pointer; padding: 6px 14px; border-radius: 7px;
+    font-size: 12.5px; color: var(--muted); transition: background .15s, color .15s;
+  }
+  .seg button.active { background: var(--panel-2); color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.3); }
+
+  /* buttons */
+  .btn {
+    all: unset; cursor: pointer; padding: 8px 16px; border-radius: 8px;
+    font-size: 13px; border: 1px solid var(--border);
+    background: var(--panel-2); color: var(--text);
+    transition: background .15s, border-color .15s;
+  }
+  .btn:hover { background: #262b38; }
+  .btn.danger { color: var(--danger); border-color: rgba(255,107,107,.25); }
+  .btn.danger:hover { background: rgba(255,107,107,.08); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
+  .btn.primary:hover { filter: brightness(1.08); }
+
+  /* preview */
+  .preview {
+    margin-top: 8px; background: #12151c; border: 1px solid var(--border);
+    border-radius: 10px; padding: 10px 12px;
+  }
+  .preview .preedit { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .preview .cand {
+    display: flex; align-items: center; gap: 10px;
+    padding: 4px 8px; border-radius: 6px; font-size: 15px;
+  }
+  .preview .cand.sel { background: var(--accent); color: #fff; }
+  .preview .cand .n { font-size: 10px; opacity: .65; width: 10px; }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
+  .stat {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 16px;
+  }
+  .stat .v { font-size: 22px; font-weight: 650; letter-spacing: .3px; }
+  .stat .k { font-size: 11.5px; color: var(--muted); margin-top: 5px; }
+
+  .kv { display: flex; justify-content: space-between; padding: 11px 0; font-size: 13px; }
+  .kv + .kv { border-top: 1px solid var(--border); }
+  .kv .k { color: var(--muted); }
+  .kv .v { font-variant-numeric: tabular-nums; }
+
+  .toast {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(12px);
+    background: #232a38; border: 1px solid var(--border); color: var(--text);
+    padding: 9px 18px; border-radius: 9px; font-size: 13px;
+    opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div id="app">
+  <aside>
+    <div class="brand">
+      <div class="logo">R</div>
+      <div>
+        <div class="name">rust-ime</div>
+        <div class="ver" id="brandVer">输入法设置</div>
+      </div>
+    </div>
+    <nav>
+      <button data-tab="general" class="active"><span class="ico">⚙</span>通用</button>
+      <button data-tab="appearance"><span class="ico">◐</span>外观</button>
+      <button data-tab="dict"><span class="ico">▤</span>词库</button>
+      <button data-tab="about"><span class="ico">ⓘ</span>关于</button>
+    </nav>
+    <div class="sidebar-foot">
+      纯 Rust 拼音引擎<br/>fcitx5 / X11 接入
+    </div>
+  </aside>
+
+  <main>
+    <!-- 通用 -->
+    <section id="general" class="active">
+      <h1>通用</h1>
+      <p class="sub">输入行为与启动选项</p>
+
+      <div class="card">
+        <div class="row">
+          <div>
+            <div class="label">候选数量</div>
+            <div class="desc">竖排列表中最多显示的候选词数量</div>
+          </div>
+          <div class="control">
+            <input id="candidateCount" type="range" min="5" max="10" step="1" />
+            <span class="num" id="candidateCountVal">10</span>
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <div class="label">智能预测</div>
+            <div class="desc">提交词语后，根据上下文预测下一个词</div>
+          </div>
+          <div class="control">
+            <label class="switch"><input id="prediction" type="checkbox" /><span></span></label>
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <div class="label">用户词库学习</div>
+            <div class="desc">记住你选择的词语，提高后续排序</div>
+          </div>
+          <div class="control">
+            <label class="switch"><input id="learn" type="checkbox" /><span></span></label>
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <div class="label">开机自启</div>
+            <div class="desc">登录桌面后自动启动输入法</div>
+          </div>
+          <div class="control">
+            <label class="switch"><input id="autostart" type="checkbox" /><span></span></label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 外观 -->
+    <section id="appearance">
+      <h1>外观</h1>
+      <p class="sub">候选窗口的视觉样式</p>
+
+      <div class="card">
+        <div class="row">
+          <div>
+            <div class="label">主题</div>
+            <div class="desc">候选窗口的配色方案</div>
+          </div>
+          <div class="control">
+            <div class="seg" id="themeSeg">
+              <button data-theme="dark" class="active">深色</button>
+              <button data-theme="light">浅色</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="row">
+          <div>
+            <div class="label">候选字号</div>
+            <div class="desc">候选词的显示大小</div>
+          </div>
+          <div class="control">
+            <input id="fontSize" type="range" min="13" max="20" step="1" />
+            <span class="num" id="fontSizeVal">16</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="row" style="flex-direction: column; align-items: stretch; gap: 10px;">
+          <div>
+            <div class="label">预览</div>
+            <div class="desc">候选窗口效果（随设置实时变化）</div>
+          </div>
+          <div class="preview" id="preview">
+            <div class="preedit" id="prevPreedit">nihao</div>
+            <div class="cand sel" id="prevCand"><span class="n">1</span><span>你好</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 词库 -->
+    <section id="dict">
+      <h1>词库</h1>
+      <p class="sub">系统词库与用户学习数据</p>
+
+      <div class="stat-grid">
+        <div class="stat"><div class="v" id="statDict">—</div><div class="k">系统词条</div></div>
+        <div class="stat"><div class="v" id="statUser">—</div><div class="k">用户词条</div></div>
+        <div class="stat"><div class="v" id="statCand">10</div><div class="k">候选上限</div></div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <div>
+            <div class="label">用户词库文件</div>
+            <div class="desc" id="userDictPath">—</div>
+          </div>
+          <div class="control">
+            <button class="btn danger" id="clearUserDict">清空用户词库</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 关于 -->
+    <section id="about">
+      <h1>关于</h1>
+      <p class="sub">rust-ime — 纯 Rust 拼音输入法</p>
+
+      <div class="card">
+        <div class="kv"><span class="k">版本</span><span class="v" id="aboutVer">—</span></div>
+        <div class="kv"><span class="k">引擎</span><span class="v">ime-engine (Rust)</span></div>
+        <div class="kv"><span class="k">接入方式</span><span class="v">fcitx5 addon / X11 XRecord</span></div>
+        <div class="kv"><span class="k">候选窗</span><span class="v">Tauri 2 + WebKitGTK</span></div>
+        <div class="kv"><span class="k">词库</span><span class="v" id="aboutDict">—</span></div>
+      </div>
+
+      <div class="card">
+        <div class="row">
+          <div>
+            <div class="label">根据豆包输入法逆向结果独立实现</div>
+            <div class="desc">引擎算法与词库格式为独立重写，未包含任何字节跳动二进制代码。</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+if (!window.__TAURI__) {
+  document.body.innerHTML = '<div style="padding:24px;color:#ff6b6b">Tauri API 未注入</div>';
+} else {
+const { invoke } = window.__TAURI__.core;
+
+const $ = (id) => document.getElementById(id);
+const toastEl = $('toast');
+let toastTimer = null;
+function toast(msg) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1600);
+}
+
+// ── Tabs ────────────────────────────────────────────────────────
+document.querySelectorAll('nav button').forEach((b) => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('nav button').forEach((x) => x.classList.remove('active'));
+    document.querySelectorAll('section').forEach((x) => x.classList.remove('active'));
+    b.classList.add('active');
+    $(b.dataset.tab).classList.add('active');
+  });
+});
+
+// ── State ───────────────────────────────────────────────────────
+let settings = {
+  candidate_count: 10,
+  prediction: true,
+  learn: true,
+  autostart: true,
+  theme: 'dark',
+  font_size: 16,
+};
+
+function paint() {
+  $('candidateCount').value = settings.candidate_count;
+  $('candidateCountVal').textContent = settings.candidate_count;
+  $('prediction').checked = settings.prediction;
+  $('learn').checked = settings.learn;
+  $('autostart').checked = settings.autostart;
+  $('fontSize').value = settings.font_size;
+  $('fontSizeVal').textContent = settings.font_size;
+  $('statCand').textContent = settings.candidate_count;
+  document.querySelectorAll('#themeSeg button').forEach((b) => {
+    b.classList.toggle('active', b.dataset.theme === settings.theme);
+  });
+  applyPreview();
+}
+
+function applyPreview() {
+  const light = settings.theme === 'light';
+  const p = $('preview');
+  p.style.background = light ? '#f4f6fb' : '#12151c';
+  p.style.color = light ? '#1a1d24' : '#e8eaf0';
+  $('prevPreedit').style.color = light ? '#6b7280' : '#8b93a7';
+  const cand = $('prevCand');
+  cand.style.fontSize = settings.font_size + 'px';
+  if (light) {
+    cand.classList.remove('sel');
+    cand.style.background = '#4f8cff';
+    cand.style.color = '#fff';
+  }
+}
+
+async function save() {
+  try {
+    await invoke('save_settings', { settings });
+    toast('已保存');
+  } catch (e) {
+    toast('保存失败: ' + e);
+  }
+}
+
+// ── Bindings ────────────────────────────────────────────────────
+$('candidateCount').addEventListener('input', (e) => {
+  settings.candidate_count = Number(e.target.value);
+  $('candidateCountVal').textContent = settings.candidate_count;
+  $('statCand').textContent = settings.candidate_count;
+  save();
+});
+$('prediction').addEventListener('change', (e) => { settings.prediction = e.target.checked; save(); });
+$('learn').addEventListener('change', (e) => { settings.learn = e.target.checked; save(); });
+$('autostart').addEventListener('change', (e) => { settings.autostart = e.target.checked; save(); });
+$('fontSize').addEventListener('input', (e) => {
+  settings.font_size = Number(e.target.value);
+  $('fontSizeVal').textContent = settings.font_size;
+  applyPreview();
+});
+$('fontSize').addEventListener('change', save);
+document.querySelectorAll('#themeSeg button').forEach((b) => {
+  b.addEventListener('click', () => {
+    settings.theme = b.dataset.theme;
+    paint();
+    save();
+  });
+});
+
+$('clearUserDict').addEventListener('click', async () => {
+  try {
+    await invoke('clear_user_dict');
+    toast('用户词库已清空');
+    await refreshStats();
+  } catch (e) {
+    toast('操作失败: ' + e);
+  }
+});
+
+// ── Init ────────────────────────────────────────────────────────
+async function refreshStats() {
+  try {
+    const s = await invoke('get_stats');
+    $('statDict').textContent = s.system_words.toLocaleString();
+    $('statUser').textContent = s.user_words.toLocaleString();
+    $('userDictPath').textContent = s.user_dict_path;
+    $('aboutDict').textContent = s.system_words.toLocaleString() + ' 词';
+    $('aboutVer').textContent = s.version;
+    $('brandVer').textContent = 'v' + s.version;
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+(async () => {
+  try {
+    settings = await invoke('get_settings');
+  } catch (e) {
+    console.error('load settings failed', e);
+  }
+  paint();
+  await refreshStats();
+})();
+}
+</script>
+</body>
+</html>

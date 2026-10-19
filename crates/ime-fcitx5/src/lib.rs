@@ -115,6 +115,31 @@ impl ImeServer {
         e.is_active()
     }
 
+    /// Apply runtime settings from the settings window.
+    pub fn apply_settings(
+        &self,
+        max_candidates: usize,
+        prediction: bool,
+        learn: bool,
+    ) {
+        let mut e = self.engine.lock().unwrap();
+        e.set_max_candidates(max_candidates);
+        e.set_prediction_enabled(prediction);
+        e.set_learn_enabled(learn);
+    }
+
+    /// (system words, user words).
+    pub fn dict_stats(&self) -> (usize, usize) {
+        let e = self.engine.lock().unwrap();
+        e.dict_stats()
+    }
+
+    /// Drop all learned user entries and persist.
+    pub fn clear_user_dict(&self) {
+        let mut e = self.engine.lock().unwrap();
+        e.clear_user_dict();
+    }
+
     // ── Activate / deactivate ───────────────────────────────────────
 
     pub fn on_activate(&self) {

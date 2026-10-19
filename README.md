@@ -203,3 +203,19 @@ fcitx5-remote -r                     # 重启 fcitx5
 
 安装后在 fcitx5 配置工具的输入法列表中添加 **rust-ime**。
 插件由 fcitx5 驱动按键、渲染候选窗并提交文本，不再需要 XRecord/xdotool。
+
+## 设置中心
+
+候选窗右下角齿轮，或启动时加 `--settings` 打开：
+
+```bash
+./target/release/rust-ime-app --settings
+```
+
+- **通用**：候选数量（5–10）、智能预测、用户词库学习、开机自启
+- **外观**：深色/浅色主题、候选字号（实时预览）
+- **词库**：系统/用户词条统计、用户词库路径、一键清空
+- **关于**：版本与实现信息
+
+配置保存在 `~/.config/rust-ime/config.json`，用户词库在
+`~/.local/share/rust-ime/udict.txt`，修改即时生效。

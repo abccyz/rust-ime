@@ -71,7 +71,13 @@
       .cand.selected .py, .cand.selected .idx { color: rgba(255, 255, 255, 0.75); }
       #hint {
         font-size: 11px; color: var(--muted);
+        display: flex; align-items: center; justify-content: space-between; gap: 8px;
       }
+      #gear {
+        flex: 0 0 auto; cursor: pointer; font-size: 13px;
+        color: var(--muted); padding: 0 4px; border-radius: 4px;
+      }
+      #gear:hover { color: var(--fg); background: rgba(255,255,255,0.08); }
       #empty {
         font-size: 13px; color: var(--muted); opacity: 0.7;
       }
@@ -81,7 +87,10 @@
     <div id="app">
       <div id="preedit"></div>
       <div id="candidates"><div id="empty">输入拼音以开始（例如 nihao → 你好）</div></div>
-      <div id="hint">空格/回车 = 提交首选 · 数字键 = 选择 · Esc = 清除</div>
+      <div id="hint">
+        <span>空格/回车 = 提交首选 · 数字键 = 选择 · Esc = 清除</span>
+        <span id="gear" title="输入法设置">⚙</span>
+      </div>
     </div>
     <script>
       if (!window.__TAURI__) {
@@ -152,6 +161,29 @@
       // Listen for preedit snapshots emitted by the engine.
       window.__TAURI__.event.listen('preedit', (event) => {
         render(event.payload);
+      });
+
+      // Apply appearance settings (theme + font size) sent by the backend.
+      function applySettings(s) {
+        const root = document.documentElement;
+        if (s.theme === 'light') {
+          root.style.setProperty('--fg', '#1a1d24');
+          root.style.setProperty('--muted', '#6b7280');
+          root.style.setProperty('--border', 'rgba(0,0,0,0.10)');
+          document.body.style.background = '#f4f6fb';
+        } else {
+          root.style.setProperty('--fg', '#f5f6f8');
+          root.style.setProperty('--muted', '#9aa0aa');
+          root.style.setProperty('--border', 'rgba(255,255,255,0.08)');
+          document.body.style.background = '#1e2028';
+        }
+        candEl.style.fontSize = (s.font_size || 16) + 'px';
+      }
+      window.__TAURI__.event.listen('settings', (event) => applySettings(event.payload));
+      window.__TAURI__.core.invoke('get_settings').then(applySettings).catch(() => {});
+
+      document.getElementById('gear').addEventListener('click', () => {
+        window.__TAURI__.core.invoke('open_settings').catch(() => {});
       });
 
       // Focus the body so keydown fires.

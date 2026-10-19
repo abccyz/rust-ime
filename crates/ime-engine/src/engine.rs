@@ -89,9 +89,13 @@ pub struct Engine {
     user_dict_path: Option<std::path::PathBuf>,
     /// Last committed text — the context used for next-word prediction.
     last_committed: Option<String>,
+    /// Runtime settings (see `set_max_candidates` etc.).
+    max_candidates: usize,
+    prediction_enabled: bool,
+    learn_enabled: bool,
 }
 
-/// Maximum candidates shown per page (vertical list).
+/// Maximum candidates shown per page (upper bound for the setting).
 pub const MAX_CANDIDATES: usize = 10;
 
 impl Default for Engine {
@@ -117,7 +121,51 @@ impl Engine {
             max_recent: 64,
             user_dict_path: None,
             last_committed: None,
+            max_candidates: MAX_CANDIDATES,
+            prediction_enabled: true,
+            learn_enabled: true,
         }
+    }
+
+    /// Set how many candidates to show (clamped to 1..=MAX_CANDIDATES).
+    pub fn set_max_candidates(&mut self, n: usize) {
+        self.max_candidates = n.clamp(1, MAX_CANDIDATES);
+    }
+
+    pub fn max_candidates(&self) -> usize {
+        self.max_candidates
+    }
+
+    /// Enable/disable contextual next-word prediction.
+    pub fn set_prediction_enabled(&mut self, on: bool) {
+        self.prediction_enabled = on;
+        if !on {
+            self.last_committed = None;
+        }
+    }
+
+    pub fn prediction_enabled(&self) -> bool {
+        self.prediction_enabled
+    }
+
+    /// Enable/disable adaptive user-dictionary learning.
+    pub fn set_learn_enabled(&mut self, on: bool) {
+        self.learn_enabled = on;
+    }
+
+    pub fn learn_enabled(&self) -> bool {
+        self.learn_enabled
+    }
+
+    /// (system words, user words).
+    pub fn dict_stats(&self) -> (usize, usize) {
+        (self.candidates.system_len(), self.candidates.user_len())
+    }
+
+    /// Clear learned user entries and persist the empty dictionary.
+    pub fn clear_user_dict(&mut self) {
+        self.candidates.clear_user();
+        self.save_user_dict();
     }
 
     /// Create an engine that loads and persists a user dictionary at `path`.
@@ -145,11 +193,13 @@ impl Engine {
         // pinyin conversion candidates.
         let candidates = if self.buffer.is_empty() {
             match self.last_committed.as_deref() {
-                Some(ctx) => self.candidates.predict(ctx, MAX_CANDIDATES),
-                None => Vec::new(),
+                Some(ctx) if self.prediction_enabled => {
+                    self.candidates.predict(ctx, self.max_candidates)
+                }
+                _ => Vec::new(),
             }
         } else {
-            self.candidates.candidates(&self.buffer, MAX_CANDIDATES)
+            self.candidates.candidates(&self.buffer, self.max_candidates)
         };
         PreeditState {
             raw: self.buffer.clone(),
@@ -162,7 +212,8 @@ impl Engine {
 
     /// Whether contextual next-word predictions are currently displayed.
     pub fn has_predictions(&self) -> bool {
-        self.buffer.is_empty()
+        self.prediction_enabled
+            && self.buffer.is_empty()
             && self
                 .last_committed
                 .as_deref()
@@ -360,6 +411,9 @@ impl Engine {
     /// it ranks higher next time. This is the minimal version of
     /// `wave-ime`'s `usr_dict.cpp` adaptive scoring.
     fn learn(&mut self, pinyin: &str, word: &str) {
+        if !self.learn_enabled {
+            return;
+        }
         userdict::reinforce(self.candidates.user_dictionary(), pinyin, word, 1.0);
     }
 }

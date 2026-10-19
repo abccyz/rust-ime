@@ -49,6 +49,7 @@ impl DisplayHandle {
 struct AppState {
     server: ImeServer,
     display: DisplayHandle,
+    settings: std::sync::Mutex<Settings>,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -65,6 +66,150 @@ struct PreeditView {
     candidates: Vec<CandidateView>,
     page: usize,
     total_pages: usize,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+struct Settings {
+    candidate_count: usize,
+    prediction: bool,
+    learn: bool,
+    autostart: bool,
+    theme: String,
+    font_size: u32,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            candidate_count: ime_engine::engine::MAX_CANDIDATES,
+            prediction: true,
+            learn: true,
+            autostart: true,
+            theme: "dark".to_string(),
+            font_size: 16,
+        }
+    }
+}
+
+fn config_dir() -> std::path::PathBuf {
+    let base = std::env::var("XDG_CONFIG_HOME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("HOME").ok().map(|h| format!("{h}/.config")))
+        .unwrap_or_else(|| "/tmp".to_string());
+    std::path::PathBuf::from(base).join("rust-ime")
+}
+
+fn config_path() -> std::path::PathBuf {
+    config_dir().join("config.json")
+}
+
+fn user_dict_path() -> std::path::PathBuf {
+    let base = std::env::var("XDG_DATA_HOME")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| std::env::var("HOME").ok().map(|h| format!("{h}/.local/share")))
+        .unwrap_or_else(|| "/tmp".to_string());
+    std::path::PathBuf::from(base).join("rust-ime/udict.txt")
+}
+
+fn load_settings() -> Settings {
+    std::fs::read_to_string(config_path())
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn store_settings(s: &Settings) {
+    let dir = config_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    if let Ok(json) = serde_json::to_string_pretty(s) {
+        let _ = std::fs::write(config_path(), json);
+    }
+}
+
+/// Apply settings to the engine, autostart and candidate window.
+fn apply_settings(app: &AppHandle, server: &ImeServer, s: &Settings) {
+    server.apply_settings(s.candidate_count, s.prediction, s.learn);
+    set_autostart(s.autostart);
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.emit("settings", s.clone());
+    }
+}
+
+/// Create/remove the XDG autostart entry.
+fn set_autostart(on: bool) {
+    let home = match std::env::var("HOME") {
+        Ok(h) => h,
+        Err(_) => return,
+    };
+    let path = format!("{home}/.config/autostart/rust-ime.desktop");
+    if on {
+        if let Ok(exe) = std::env::current_exe() {
+            let dir = format!("{home}/.config/autostart");
+            let _ = std::fs::create_dir_all(&dir);
+            let content = format!(
+                "[Desktop Entry]\nType=Application\nName=rust-ime\nComment=Pinyin input method (Rust + Tauri)\nExec=\"{}\"\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
+                exe.display()
+            );
+            if std::fs::read_to_string(&path).ok().as_deref() != Some(content.as_str()) {
+                let _ = std::fs::write(&path, content);
+            }
+        }
+    } else {
+        let _ = std::fs::remove_file(&path);
+    }
+}
+
+#[derive(serde::Serialize)]
+struct Stats {
+    system_words: usize,
+    user_words: usize,
+    user_dict_path: String,
+    version: String,
+}
+
+#[tauri::command]
+fn get_settings(state: State<'_, AppState>) -> Settings {
+    state.settings.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn save_settings(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    settings: Settings,
+) -> Result<(), String> {
+    store_settings(&settings);
+    *state.settings.lock().unwrap() = settings.clone();
+    apply_settings(&app, &state.server, &settings);
+    Ok(())
+}
+
+#[tauri::command]
+fn get_stats(state: State<'_, AppState>) -> Stats {
+    let (system_words, user_words) = state.server.dict_stats();
+    Stats {
+        system_words,
+        user_words,
+        user_dict_path: user_dict_path().display().to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+    }
+}
+
+#[tauri::command]
+fn clear_user_dict(state: State<'_, AppState>) -> Result<(), String> {
+    state.server.clear_user_dict();
+    Ok(())
+}
+
+#[tauri::command]
+fn open_settings(app: AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window("settings") {
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+    Ok(())
 }
 
 fn snapshot(server: &ImeServer) -> PreeditView {
@@ -415,30 +560,6 @@ fn single_instance() -> Option<std::os::unix::net::UnixListener> {
     UnixListener::bind(&path).ok()
 }
 
-/// Register the app for XDG autostart (user-level, no sudo).
-fn ensure_autostart() {
-    let exe = match std::env::current_exe() {
-        Ok(p) => p,
-        Err(_) => return,
-    };
-    let home = match std::env::var("HOME") {
-        Ok(h) => h,
-        Err(_) => return,
-    };
-    let dir = format!("{home}/.config/autostart");
-    let _ = std::fs::create_dir_all(&dir);
-    let path = format!("{dir}/rust-ime.desktop");
-    let content = format!(
-        "[Desktop Entry]\nType=Application\nName=rust-ime\nComment=Pinyin input method (Rust + Tauri)\nExec=\"{}\"\nTerminal=false\nX-GNOME-Autostart-enabled=true\n",
-        exe.display()
-    );
-    if std::fs::read_to_string(&path).ok().as_deref() != Some(content.as_str())
-        && std::fs::write(&path, content).is_ok()
-    {
-        eprintln!("[rust-ime] autostart registered: {path}");
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let _instance = match single_instance() {
@@ -448,7 +569,8 @@ pub fn run() {
             return;
         }
     };
-    ensure_autostart();
+    // Load persisted settings and the user dictionary.
+    let settings = load_settings();
 
     // Open X11 display for XIM commit + cursor tracking + key grab.
     let display = DisplayHandle::new();
@@ -459,11 +581,24 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .manage(AppState {
-            server: ImeServer::new(),
+            server: ImeServer::with_user_dict(&user_dict_path()),
             display,
+            settings: std::sync::Mutex::new(settings.clone()),
         })
         .setup(move |app| {
             let handle = app.handle().clone();
+
+            // Apply persisted settings to the engine + autostart + UI.
+            let state = app.state::<AppState>();
+            apply_settings(&handle, &state.server, &settings);
+
+            // `rust-ime-app --settings` opens the settings center directly.
+            if std::env::args().any(|a| a == "--settings") {
+                if let Some(w) = app.get_webview_window("settings") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }
 
             // Start the key grabber (opens its own X11 connection).
             match KeyGrabber::start(tx) {
@@ -493,7 +628,12 @@ pub fn run() {
             feed_key,
             commit_candidate,
             select_candidate,
-            reset_engine
+            reset_engine,
+            get_settings,
+            save_settings,
+            get_stats,
+            clear_user_dict,
+            open_settings
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
