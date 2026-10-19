@@ -1064,11 +1064,17 @@ fn single_instance() -> Option<std::os::unix::net::UnixListener> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Write to stdout without panicking when the reader closes the pipe.
+fn print_ignore(s: &str) {
+    use std::io::Write;
+    let _ = std::io::stdout().write_all(s.as_bytes());
+}
+
 pub fn run() {
     // Headless maintenance entry points.
     if std::env::args().any(|a| a == "--install-addon") {
         match do_install_fcitx5_addon() {
-            Ok(m) => println!("{m}"),
+            Ok(m) => print_ignore(&format!("{m}\n")),
             Err(e) => {
                 eprintln!("error: {e}");
                 std::process::exit(1);
@@ -1112,27 +1118,35 @@ pub fn run() {
     }
     if std::env::args().any(|a| a == "--status") {
         let (data, lib) = fcitx5_user_paths();
-        println!("addon_installed = {}", fcitx5_addon_installed());
-        println!("addon_active    = {}", fcitx5_addon_active());
-        println!("fcitx5_running  = {}", process_running("fcitx5"));
-        println!("addon_conf      = {}", data.join("addon/rustime.conf").display());
-        println!("addon_lib       = {}", lib.join("librustime.so").display());
-        println!("inputmethod     = {}", data.join("inputmethod/rust-ime.conf").display());
+        let mut out = String::new();
+        out.push_str(&format!(
+            "addon_installed = {}\naddon_active    = {}\nfcitx5_running  = {}\n",
+            fcitx5_addon_installed(),
+            fcitx5_addon_active(),
+            process_running("fcitx5")
+        ));
+        out.push_str(&format!(
+            "addon_conf      = {}\naddon_lib       = {}\ninputmethod     = {}\n",
+            data.join("addon/rustime.conf").display(),
+            lib.join("librustime.so").display(),
+            data.join("inputmethod/rust-ime.conf").display()
+        ));
         if let Ok(p) = std::fs::read_to_string(format!(
             "{}/.config/fcitx5/profile",
             std::env::var("HOME").unwrap_or_default()
         )) {
             for line in p.lines() {
                 if line.contains("DefaultIM") || line.contains("rust-ime") {
-                    println!("profile: {line}");
+                    out.push_str(&format!("profile: {line}\n"));
                 }
             }
         }
+        print_ignore(&out);
         return;
     }
     if std::env::args().any(|a| a == "--uninstall-addon") {
         match do_uninstall_fcitx5_addon() {
-            Ok(m) => println!("{m}"),
+            Ok(m) => print_ignore(&format!("{m}\n")),
             Err(e) => {
                 eprintln!("error: {e}");
                 std::process::exit(1);
