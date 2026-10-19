@@ -134,7 +134,7 @@ sudo apt install libfcitx5-dev
 │  app/src/main.rs                                             │
 │  - XRecord 全局按键 → 引擎 → 候选                             │
 │  - Ctrl+Space 中英切换                                        │
-│  - commit: 退格擦除 + xdotool type（UTF-8/CJK）                │
+│  - commit: 退格擦除 + 内置 XTest 注入（UTF-8/CJK，零外部工具）  │
 │  - 候选窗 show/hide + 跟随鼠标定位                             │
 │  - 单实例锁 + XDG autostart                                   │
 └──────────────────────────┬──────────────────────────────────┘
@@ -202,7 +202,7 @@ fcitx5-remote -r                     # 重启 fcitx5
 ```
 
 安装后在 fcitx5 配置工具的输入法列表中添加 **rust-ime**。
-插件由 fcitx5 驱动按键、渲染候选窗并提交文本，不再需要 XRecord/xdotool。
+插件由 fcitx5 驱动按键、渲染候选窗并提交文本，不再需要 XRecord 或内置注入。
 
 ## 设置中心
 
@@ -230,3 +230,19 @@ fcitx5-remote -r                     # 重启 fcitx5
   `~/.local/share/applications/rust-ime.desktop` 与
   `~/.local/share/icons/hicolor/256x256/apps/rust-ime.png`，
   桌面应用菜单中显示 logo，点击进入设置
+
+## 零外部工具依赖
+
+程序自身完成所有依赖与环境准备，不需要用户手动安装或运行辅助命令：
+
+| 原先依赖 | 现状 |
+|----------|------|
+| `xdotool`（注入中文） | 内置 X11 keysym 重映射 + XTest 注入 |
+| `xclip` / 剪贴板 | 不需要 |
+| 手动装开机自启 | 设置中心开关 / 首次运行自动写入 |
+| 手动建桌面菜单项 | 首次运行自动写入 `.desktop` + 图标 |
+| 手动建配置/词库 | 自动创建 `~/.config/rust-ime`、`~/.local/share/rust-ime` |
+
+运行期只依赖桌面环境自带的系统库（X11、GTK、WebKitGTK、appindicator），
+这些由发行版默认提供。`fcitx5` 插件是可选的额外集成，不安装也不影响
+主程序工作。

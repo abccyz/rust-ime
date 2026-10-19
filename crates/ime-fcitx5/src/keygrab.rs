@@ -411,3 +411,126 @@ pub fn set_input_focus(win: c_ulong) {
         (xl.XFlush)(display);
     }
 }
+
+// ── Built-in UTF-8 text injection (no xdotool dependency) ────────────────
+//
+// For each character we temporarily remap a spare keycode to the Unicode
+// keysym (0x01000000 + codepoint), press/release it via XTEST, then restore
+// the mapping. This is the same technique xdotool uses, implemented natively.
+
+fn find_spare_keycode(
+    xl: &xlib::Xlib,
+    display: *mut xlib::Display,
+) -> Option<(c_uchar, c_int)> {
+    unsafe {
+        let mut min: c_int = 0;
+        let mut max: c_int = 0;
+        (xl.XDisplayKeycodes)(display, &mut min, &mut max);
+        if min <= 0 || max <= min {
+            return None;
+        }
+        let count = max - min + 1;
+        let mut per: c_int = 0;
+        let map = (xl.XGetKeyboardMapping)(display, min as c_uchar, count, &mut per);
+        if map.is_null() || per <= 0 {
+            return None;
+        }
+        let mut spare = None;
+        for i in 0..count {
+            let base = (i * per) as usize;
+            let mut empty = true;
+            for j in 0..per as usize {
+                if *map.add(base + j) != 0 {
+                    empty = false;
+                    break;
+                }
+            }
+            // Prefer a keycode near the high end (less likely to be used).
+            if empty {
+                spare = Some((min + i) as c_uchar);
+                if (min + i) >= max - 8 {
+                    break;
+                }
+            }
+        }
+        (xl.XFree)(map as *mut _);
+        spare.map(|kc| (kc, per))
+    }
+}
+
+/// Inject arbitrary UTF-8 text into the focused window via XTEST.
+///
+/// Works for ASCII and CJK; falls back to the direct-keysym path when no
+/// spare keycode is available.
+pub fn inject_text(text: &str) {
+    if text.is_empty() {
+        return;
+    }
+    let display = aux_display();
+    if display.is_null() {
+        return;
+    }
+    unsafe {
+        let xl = match xlib::Xlib::open() {
+            Ok(x) => x,
+            Err(_) => return,
+        };
+        let xtst = match x11_dl::xtest::Xf86vmode::open() {
+            Ok(x) => x,
+            Err(_) => return,
+        };
+
+        let spare = find_spare_keycode(&xl, display);
+        let Some((spare_kc, per)) = spare else {
+            // No spare keycode: fall back to direct keysyms (ASCII only).
+            for ch in text.chars() {
+                let keysym = ch as c_ulong;
+                let kc = (xl.XKeysymToKeycode)(display, keysym) as c_uint;
+                if kc == 0 {
+                    continue;
+                }
+                (xtst.XTestFakeKeyEvent)(display, kc, 1, 0);
+                (xtst.XTestFakeKeyEvent)(display, kc, 0, 0);
+            }
+            (xl.XSync)(display, 0);
+            return;
+        };
+
+        for ch in text.chars() {
+            let cp = ch as u32;
+            let keysym: c_ulong = if cp < 0x100 {
+                cp as c_ulong
+            } else {
+                0x0100_0000 + cp as c_ulong
+            };
+            let syms: [c_ulong; 2] = [keysym, keysym];
+            (xl.XChangeKeyboardMapping)(
+                display,
+                spare_kc as c_int,
+                per,
+                syms.as_ptr() as *mut c_ulong,
+                1,
+            );
+            (xl.XSync)(display, 0);
+            // Give clients a moment to pick up the new mapping before the key
+            // event; without this the first character is often lost.
+            std::thread::sleep(std::time::Duration::from_millis(8));
+
+            (xtst.XTestFakeKeyEvent)(display, spare_kc as c_uint, 1, 0);
+            (xtst.XTestFakeKeyEvent)(display, spare_kc as c_uint, 0, 0);
+            (xl.XSync)(display, 0);
+            std::thread::sleep(std::time::Duration::from_millis(4));
+        }
+
+        // Restore the spare keycode to NoSymbol.
+        let none: [c_ulong; 2] = [0, 0];
+        (xl.XChangeKeyboardMapping)(
+            display,
+            spare_kc as c_int,
+            per,
+            none.as_ptr() as *mut c_ulong,
+            1,
+        );
+        (xl.XSync)(display, 0);
+    }
+}

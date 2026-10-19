@@ -332,14 +332,14 @@ fn emit_preedit(app: &AppHandle, server: &ImeServer) {
 /// injecting the Chinese text.
 static LEAKED_CHARS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// Set while we are injecting text via xdotool. Our own XRecord capture sees
-/// those synthetic keys; they must be ignored or they would corrupt the
-/// engine state (e.g. the erase-BackSpaces would dismiss predictions).
+/// Set while we inject text synthetically (XTest). Our own XRecord capture
+/// sees those keys; they must be ignored or they would corrupt the engine
+/// state (e.g. the erase-BackSpaces would dismiss predictions).
 static INJECTING: AtomicBool = AtomicBool::new(false);
 
 /// Commit text to the focused app: first erase leaked pinyin letters, then
-/// inject the committed text. Both run in one ordered `xdotool` invocation
-/// (UTF-8/CJK capable).
+/// inject the committed text via the built-in XTest injector (UTF-8/CJK
+/// capable, no external tools).
 fn commit_text(_app: &AppHandle, _server: &ImeServer, text: &str) {
     // Restore keyboard focus to the app the user was typing into. Without
     // this the always-on-top candidate strip may hold focus and swallow the
@@ -354,24 +354,18 @@ fn commit_text(_app: &AppHandle, _server: &ImeServer, text: &str) {
     if leaked == 0 && text.is_empty() {
         return;
     }
-    let mut cmd = std::process::Command::new("xdotool");
+    INJECTING.store(true, Ordering::SeqCst);
     if leaked > 0 {
-        cmd.args(["key", "--repeat", &leaked.to_string(), "BackSpace"]);
+        keygrab::send_backspaces(leaked);
     }
     if !text.is_empty() {
-        cmd.args(["type", "--clearmodifiers", "--delay", "0", text]);
+        keygrab::inject_text(text);
     }
-    INJECTING.store(true, Ordering::SeqCst);
-    if let Err(e) = cmd.spawn() {
-        eprintln!("[rust-ime] xdotool inject failed: {e}");
+    // Ignore our own synthetic keys until the XRecord stream settles.
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_millis(200));
         INJECTING.store(false, Ordering::SeqCst);
-    } else {
-        // Let the synthetic key stream finish, then stop ignoring captures.
-        std::thread::spawn(|| {
-            std::thread::sleep(std::time::Duration::from_millis(500));
-            INJECTING.store(false, Ordering::SeqCst);
-        });
-    }
+    });
 }
 
 #[tauri::command]
@@ -487,7 +481,7 @@ static CTRL_DOWN: AtomicBool = AtomicBool::new(false);
 
 /// Handle a grabbed key: decide whether to consume (IME mode) or pass through.
 fn handle_grabbed_key(app: &AppHandle, gk: &GrabbedKey) {
-    // Ignore the synthetic keys we ourselves inject via xdotool.
+    // Ignore the synthetic keys we ourselves inject.
     if INJECTING.load(Ordering::SeqCst) {
         return;
     }
