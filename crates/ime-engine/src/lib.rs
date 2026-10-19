@@ -30,6 +30,7 @@
 
 pub mod candidate;
 pub mod engine;
+pub mod ffi;
 pub mod pinyin;
 pub mod userdict;
 

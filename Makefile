@@ -1,4 +1,4 @@
-.PHONY: test fmt clippy lint build build-release run clean ci package package-dev dev fmt-check
+.PHONY: test fmt clippy lint build build-release run clean ci package package-dev dev fmt-check addon addon-install
 
 # ── Development ─────────────────────────────────────────────────────
 
@@ -16,6 +16,16 @@ run:
 
 clean:
 	cargo clean
+
+# ── fcitx5 addon ────────────────────────────────────────────────────
+
+# Build the C++ addon (needs libfcitx5core-dev + g++).
+addon:
+	$(MAKE) -C crates/fcitx5-addon
+
+# Install system-wide (run with sudo).
+addon-install: addon
+	sudo ./scripts/install-fcitx5-addon.sh
 
 # ── Quality gates ───────────────────────────────────────────────────
 

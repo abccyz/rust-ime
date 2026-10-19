@@ -9,4 +9,9 @@ license = "MIT"
 # Deliberately minimal / offline-buildable: no network, no C++ deps.
 # utf8 handling is std; candidate scoring is a hand-rolled trie + Viterbi-lite.
 
+[lib]
+# `staticlib` lets the fcitx5 C++ addon link us directly; `lib` keeps the
+# Rust unit tests and the Tauri app working.
+crate-type = ["lib", "staticlib"]
+
 [dev-dependencies]
