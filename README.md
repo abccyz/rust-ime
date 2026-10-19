@@ -286,3 +286,13 @@ rust-ime --uninstall-addon
 插件二进制已内置于程序中（`app/addons/librustime.so`）。
 如需重新构建：`./scripts/build-addon.sh`（用 `apt-get download` 取头文件，
 解包到本地 sysroot 编译，全程不需要 root）。
+
+## 候选窗：插件模式下使用自有 GUI
+
+fcitx5 插件把拼音与候选通过 Unix socket
+（`$XDG_RUNTIME_DIR/rust-ime/ui.sock`）推给 rust-ime 程序，由我们的
+墨色+金色候选窗在光标下方渲染；鼠标点击候选会回传选择给插件提交。
+
+- 程序未运行时，插件自动回退到 fcitx5 的 classicui 候选面板
+- 文本提交始终走 fcitx5 的 InputContext，不再需要 XTest 注入
+- `rust-ime --install-addon` 会自动拉起 UI 宿主（setsid 脱离终端）

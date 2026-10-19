@@ -434,6 +434,117 @@ fn uninstall_fcitx5_addon() -> Result<String, String> {
     do_uninstall_fcitx5_addon()
 }
 
+// ── fcitx5 → Tauri candidate UI (IPC) ───────────────────────────────────
+//
+// The addon sends one JSON line per update:
+//   {"preedit":"nihao","candidates":["你好"],"x":..,"y":..,"w":..,"h":..}
+// The app renders it with our own UI and replies with "S<idx>\n" when the user
+// clicks a candidate.
+
+static UI_STREAM: std::sync::Mutex<Option<std::os::unix::net::UnixStream>> =
+    std::sync::Mutex::new(None);
+
+#[derive(serde::Deserialize)]
+struct UiEvent {
+    preedit: String,
+    candidates: Vec<String>,
+    x: i32,
+    y: i32,
+    h: i32,
+}
+
+fn handle_ui_event(app: &AppHandle, ev: UiEvent) {
+    let Some(win) = app.get_webview_window("main") else {
+        return;
+    };
+    let active = !ev.preedit.is_empty() || !ev.candidates.is_empty();
+    if !active {
+        let _ = win.hide();
+        return;
+    }
+
+    let n = ev.candidates.len();
+    let height = if n == 0 {
+        90.0
+    } else {
+        (74.0 + n as f64 * 36.0).min(470.0)
+    };
+    let _ = win.set_size(tauri::LogicalSize::new(520.0, height));
+    // fcitx5 gives the caret rect in screen coordinates.
+    let _ = win.set_position(tauri::PhysicalPosition::new(
+        ev.x + 4,
+        ev.y + ev.h + 4,
+    ));
+
+    let candidates: Vec<serde_json::Value> = ev
+        .candidates
+        .iter()
+        .enumerate()
+        .map(|(i, t)| {
+            serde_json::json!({
+                "text": t,
+                "pinyin": "",
+                "selected": i == 0,
+            })
+        })
+        .collect();
+    let view = serde_json::json!({
+        "raw": ev.preedit,
+        "is_valid_pinyin": true,
+        "candidates": candidates,
+        "page": 0,
+        "total_pages": usize::from(n > 0),
+    });
+    let _ = win.emit("preedit", view);
+    let _ = win.show();
+}
+
+/// Listen on $XDG_RUNTIME_DIR/rust-ime/ui.sock for addon updates.
+fn start_ui_server(app: AppHandle) {
+    let dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
+    let path = format!("{dir}/rust-ime/ui.sock");
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let _ = std::fs::remove_file(&path);
+    let listener = match std::os::unix::net::UnixListener::bind(&path) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("[rust-ime] ui socket bind failed: {e}");
+            return;
+        }
+    };
+    eprintln!("[rust-ime] candidate UI socket: {path}");
+
+    std::thread::Builder::new()
+        .name("ime-ui-ipc".into())
+        .spawn(move || {
+            use std::io::{BufRead, BufReader};
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { continue };
+                if let Ok(clone) = stream.try_clone() {
+                    if let Ok(mut slot) = UI_STREAM.lock() {
+                        *slot = Some(clone);
+                    }
+                }
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    let reader = BufReader::new(stream);
+                    for line in reader.lines() {
+                        let Ok(line) = line else { break };
+                        if let Ok(ev) = serde_json::from_str::<UiEvent>(&line) {
+                            handle_ui_event(&app, ev);
+                        }
+                    }
+                    if let Ok(mut slot) = UI_STREAM.lock() {
+                        *slot = None;
+                    }
+                });
+            }
+        })
+        .ok();
+}
+
 #[tauri::command]
 fn get_settings(state: State<'_, AppState>) -> Settings {
     state.settings.lock().unwrap().clone()
@@ -704,6 +815,15 @@ fn feed_key(
 
 #[tauri::command]
 fn commit_candidate(app: AppHandle, state: State<AppState>, idx: usize) -> Result<String, String> {
+    // fcitx5 mode: forward the selection to the addon.
+    if let Ok(mut slot) = UI_STREAM.lock() {
+        if let Some(stream) = slot.as_mut() {
+            use std::io::Write;
+            let _ = stream.write_all(format!("S{idx}\n").as_bytes());
+            return Ok(String::new());
+        }
+    }
+
     let ev = state.server.commit_candidate(idx);
     emit_preedit(&app, &state.server);
     let committed = ev
@@ -954,6 +1074,14 @@ pub fn run() {
                 std::process::exit(1);
             }
         }
+        // Keep the UI host running so the addon can render our candidate
+        // window; a second instance exits immediately via the single-instance
+        // lock, so this is safe.
+        if let Ok(exe) = std::env::current_exe() {
+            // setsid detaches from the controlling terminal so the UI host
+            // survives after this CLI invocation exits.
+            let _ = std::process::Command::new("setsid").arg(exe).spawn();
+        }
         return;
     }
     if std::env::args().any(|a| a == "--status") {
@@ -1083,6 +1211,8 @@ pub fn run() {
                     }
                 }
             }
+
+            start_ui_server(handle.clone());
 
             // Spawn reader thread: reads grabbed keys → feeds engine
             std::thread::Builder::new()
