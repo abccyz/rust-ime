@@ -46,7 +46,7 @@
         gap: 10px;
         padding: 5px 10px;
         border-radius: 6px;
-        font-size: 16px;
+        font-size: var(--cand-size, 16px);
         background: rgba(255, 255, 255, 0.04);
         border: 1px solid var(--border);
         cursor: pointer;
@@ -178,7 +178,7 @@
           root.style.setProperty('--border', '#262b33');
           document.body.style.background = '#161a20';
         }
-        candEl.style.fontSize = (s.font_size || 16) + 'px';
+        document.documentElement.style.setProperty('--cand-size', (s.font_size || 16) + 'px');
       }
       window.__TAURI__.event.listen('settings', (event) => applySettings(event.payload));
       window.__TAURI__.core.invoke('get_settings').then(applySettings).catch(() => {});

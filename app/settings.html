@@ -325,9 +325,10 @@
           </article>
 
           <article class="lrow" data-search="中英切换键 快捷键">
-            <div class="lrow-t"><div class="lrow-l">中英切换键</div><div class="lrow-h">当前输入状态：中文</div></div>
-            <div class="lrow-c"><div class="seg lseg">
-              <span class="on">Ctrl+Space</span><span aria-disabled="true">Shift</span>
+            <div class="lrow-t"><div class="lrow-l">中英切换键</div><div class="lrow-h" id="imeModeHint">当前输入状态：中文</div></div>
+            <div class="lrow-c"><div class="seg lseg" id="toggleKeySeg">
+              <span data-toggle="ctrl_space" class="on">Ctrl+Space</span>
+              <span data-toggle="shift">Shift</span>
             </div></div>
           </article>
 
@@ -393,7 +394,7 @@
     <!-- ═══ 输入与候选 ═══ -->
     <section class="page" id="input">
       <div class="content-head"><div><h1>输入与候选</h1><p>输入方案、候选数量与预测</p></div>
-        <div class="head-actions"><button class="btn primary" id="saveInput">保存</button></div></div>
+        <div class="head-actions"><span class="panel-meta">自动保存</span></div></div>
 
       <section class="panel">
         <div class="panel-head"><h2>输入方案</h2><span class="panel-meta">当前：全拼</span></div>
@@ -477,12 +478,12 @@
 
       <section class="panel">
         <div class="panel-head"><h2>窗口样式</h2><span class="panel-meta">当前版本固定</span></div>
-        <article class="lrow"><div class="lrow-t"><div class="lrow-l">圆角</div><div class="lrow-h">候选窗固定 8 px 圆角</div></div>
-          <div class="lrow-c"><span class="tag">8 px</span></div></article>
+        <article class="lrow"><div class="lrow-t"><div class="lrow-l">圆角</div><div class="lrow-h">候选项 6 px 圆角，窗口为直角</div></div>
+          <div class="lrow-c"><span class="tag">6 px</span></div></article>
         <article class="lrow"><div class="lrow-t"><div class="lrow-l">透明度</div><div class="lrow-h">桌面无合成器时保持不透明</div></div>
           <div class="lrow-c"><span class="tag">不透明</span></div></article>
-        <article class="lrow"><div class="lrow-t"><div class="lrow-l">动效</div><div class="lrow-h">候选窗口淡入</div></div>
-          <div class="lrow-c"><span class="tag ok">已启用</span></div></article>
+        <article class="lrow"><div class="lrow-t"><div class="lrow-l">动效</div><div class="lrow-h">候选窗口直接显示，无动画</div></div>
+          <div class="lrow-c"><span class="tag off">未启用</span></div></article>
       </section>
 
       <section class="panel">
@@ -636,7 +637,7 @@ function toast(msg) {
   toastTimer = setTimeout(() => toastEl.classList.remove('show'), 1500);
 }
 
-let settings = { candidate_count: 10, prediction: true, learn: true, autostart: true, theme: 'dark', font_size: 16 };
+let settings = { candidate_count: 10, prediction: true, learn: true, autostart: true, theme: 'dark', font_size: 16, toggle_key: 'ctrl_space' };
 
 /* ── navigation ── */
 function showPage(id) {
@@ -665,6 +666,9 @@ function paint() {
     el.classList.toggle('on', el.dataset.theme === settings.theme);
     const badge = el.querySelector('.badge');
     if (badge) badge.textContent = el.dataset.theme === settings.theme ? '当前' : '';
+  });
+  document.querySelectorAll('#toggleKeySeg [data-toggle]').forEach((el) => {
+    el.classList.toggle('on', el.dataset.toggle === (settings.toggle_key || 'ctrl_space'));
   });
   applyPreview();
 }
@@ -725,7 +729,18 @@ document.querySelectorAll('[data-theme]').forEach((el) => el.addEventListener('c
   el.addEventListener('change', () => save(false));
 });
 
-$('saveInput').addEventListener('click', () => save(true));
+document.querySelectorAll('#toggleKeySeg [data-toggle]').forEach((el) => el.addEventListener('click', () => {
+  settings.toggle_key = el.dataset.toggle;
+  paint();
+  save(true);
+}));
+
+// Reflect live IME mode in the hint.
+window.__TAURI__.event.listen('ime-mode', (e) => {
+  const on = e.payload && e.payload.chinese;
+  const hint = $('imeModeHint');
+  if (hint) hint.textContent = '当前输入状态：' + (on ? '中文' : '英文');
+});
 
 $('exportDict').addEventListener('click', async () => {
   try { const p = await invoke('export_user_dict'); toast('已导出到 ' + p); }
@@ -740,12 +755,32 @@ $('clearDict').addEventListener('click', async () => {
 /* ── search ── */
 $('search').addEventListener('input', (e) => {
   const q = e.target.value.trim().toLowerCase();
-  const active = document.querySelector('.page.active');
-  if (!active) return;
-  active.querySelectorAll('.lrow').forEach((row) => {
-    const hay = (row.dataset.search || row.textContent).toLowerCase();
-    row.style.display = !q || hay.includes(q) ? '' : 'none';
+  let firstMatch = null;
+  document.querySelectorAll('.page').forEach((page) => {
+    let any = false;
+    page.querySelectorAll('.lrow, tbody tr').forEach((row) => {
+      if (row.querySelector('.empty')) return;
+      const hay = (row.dataset.search || row.textContent).toLowerCase();
+      const show = !q || hay.includes(q);
+      row.style.display = show ? '' : 'none';
+      if (show && q) any = true;
+    });
+    page.querySelectorAll('.panel, .stat-grid').forEach((panel) => {
+      const rows = panel.querySelectorAll('.lrow, tbody tr');
+      if (!rows.length) return; // panels without rows (theme cards, preview) stay visible
+      const anyVisible = [...rows].some((r) => r.style.display !== 'none');
+      panel.style.display = anyVisible ? '' : 'none';
+    });
+    if (any && !firstMatch) firstMatch = page.id;
   });
+  if (q && firstMatch) showPage(firstMatch);
+});
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    $('search').focus();
+    $('search').select();
+  }
 });
 
 /* ── data ── */

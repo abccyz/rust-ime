@@ -74,6 +74,7 @@ struct PreeditView {
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(default)]
 struct Settings {
     candidate_count: usize,
     prediction: bool,
@@ -81,6 +82,8 @@ struct Settings {
     autostart: bool,
     theme: String,
     font_size: u32,
+    /// How to switch Chinese/English: "ctrl_space" or "shift".
+    toggle_key: String,
 }
 
 impl Default for Settings {
@@ -92,6 +95,7 @@ impl Default for Settings {
             autostart: true,
             theme: "dark".to_string(),
             font_size: 16,
+            toggle_key: "ctrl_space".to_string(),
         }
     }
 }
@@ -247,6 +251,15 @@ fn open_settings(app: AppHandle) -> Result<(), String> {
 
 /// Show and focus the settings window.
 fn show_settings(app: &AppHandle) {
+    // The always-on-top candidate strip would cover the settings window and
+    // swallow clicks: dismiss it first.
+    if let Some(state) = app.try_state::<AppState>() {
+        let _ = state.server.reset();
+        LEAKED_CHARS.store(0, Ordering::SeqCst);
+    }
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.hide();
+    }
     if let Some(win) = app.get_webview_window("settings") {
         let _ = win.show();
         let _ = win.set_focus();
@@ -509,6 +522,31 @@ const KC_CTRL_L: u32 = 37;
 const KC_CTRL_R: u32 = 105;
 
 static CTRL_DOWN: AtomicBool = AtomicBool::new(false);
+static SHIFT_DOWN: AtomicBool = AtomicBool::new(false);
+static SHIFT_COMBINED: AtomicBool = AtomicBool::new(false);
+
+const KC_SHIFT_L: u32 = 50;
+const KC_SHIFT_R: u32 = 62;
+
+/// Toggle Chinese/English input mode.
+fn toggle_ime(app: &AppHandle) {
+    let now = !IME_ACTIVE.load(Ordering::SeqCst);
+    IME_ACTIVE.store(now, Ordering::SeqCst);
+    let state = app.state::<AppState>();
+    let _ = state.server.reset();
+    LEAKED_CHARS.store(0, Ordering::SeqCst);
+    emit_preedit(app, &state.server);
+    if let Some(win) = app.get_webview_window("settings") {
+        let _ = win.emit(
+            "ime-mode",
+            serde_json::json!({ "chinese": now }),
+        );
+    }
+    eprintln!(
+        "[rust-ime] IME {}",
+        if now { "ON (中文)" } else { "OFF (English)" }
+    );
+}
 
 /// Handle a grabbed key: decide whether to consume (IME mode) or pass through.
 fn handle_grabbed_key(app: &AppHandle, gk: &GrabbedKey) {
@@ -521,6 +559,30 @@ fn handle_grabbed_key(app: &AppHandle, gk: &GrabbedKey) {
         CTRL_DOWN.store(gk.is_press, Ordering::SeqCst);
         return; // never consume the modifier itself
     }
+    // Track Shift: a bare tap toggles IME when configured; any other key
+    // pressed while Shift is held marks it as a combination.
+    if gk.keycode == KC_SHIFT_L || gk.keycode == KC_SHIFT_R {
+        if gk.is_press {
+            SHIFT_DOWN.store(true, Ordering::SeqCst);
+            SHIFT_COMBINED.store(false, Ordering::SeqCst);
+        } else {
+            let tap = SHIFT_DOWN.swap(false, Ordering::SeqCst)
+                && !SHIFT_COMBINED.load(Ordering::SeqCst);
+            let want_shift = app
+                .state::<AppState>()
+                .settings
+                .lock()
+                .map(|s| s.toggle_key == "shift")
+                .unwrap_or(false);
+            if tap && want_shift {
+                toggle_ime(app);
+            }
+        }
+        return;
+    }
+    if SHIFT_DOWN.load(Ordering::SeqCst) {
+        SHIFT_COMBINED.store(true, Ordering::SeqCst);
+    }
     if !gk.is_press {
         return;
     }
@@ -530,14 +592,17 @@ fn handle_grabbed_key(app: &AppHandle, gk: &GrabbedKey) {
     let key = keygrab::resolve_key(gk.keycode);
     let state = app.state::<AppState>();
 
-    // Ctrl+Space: toggle Chinese/English mode.
-    if key == ime_engine::Key::Space && CTRL_DOWN.load(Ordering::SeqCst) {
-        let now = !IME_ACTIVE.load(Ordering::SeqCst);
-        IME_ACTIVE.store(now, Ordering::SeqCst);
-        let _ = state.server.reset();
-        LEAKED_CHARS.store(0, Ordering::SeqCst);
-        emit_preedit(app, &state.server);
-        eprintln!("[rust-ime] IME {}", if now { "ON (中文)" } else { "OFF (English)" });
+    // Ctrl+Space: toggle Chinese/English mode (when configured).
+    let want_ctrl_space = state
+        .settings
+        .lock()
+        .map(|s| s.toggle_key == "ctrl_space")
+        .unwrap_or(true);
+    if key == ime_engine::Key::Space
+        && CTRL_DOWN.load(Ordering::SeqCst)
+        && want_ctrl_space
+    {
+        toggle_ime(app);
         return;
     }
 
