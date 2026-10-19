@@ -1078,9 +1078,35 @@ pub fn run() {
         // window; a second instance exits immediately via the single-instance
         // lock, so this is safe.
         if let Ok(exe) = std::env::current_exe() {
-            // setsid detaches from the controlling terminal so the UI host
-            // survives after this CLI invocation exits.
-            let _ = std::process::Command::new("setsid").arg(exe).spawn();
+            // setsid detaches from the controlling terminal; stdout/stderr go
+            // to a log file so a closed pipe cannot kill the UI host.
+            let log_path = std::env::var("XDG_CACHE_HOME")
+                .map(|d| format!("{d}/rust-ime"))
+                .or_else(|_| {
+                    std::env::var("HOME")
+                        .map(|h| format!("{h}/.cache/rust-ime"))
+                })
+                .unwrap_or_else(|_| "/tmp".to_string());
+            let _ = std::fs::create_dir_all(&log_path);
+            let log = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(format!("{log_path}/ui.log"))
+                .ok();
+            let mut cmd = std::process::Command::new("setsid");
+            cmd.arg(exe);
+            cmd.stdin(std::process::Stdio::null());
+            if let Some(file) = log {
+                let clone = file.try_clone().ok();
+                cmd.stdout(file);
+                if let Some(clone) = clone {
+                    cmd.stderr(clone);
+                }
+            } else {
+                cmd.stdout(std::process::Stdio::null());
+                cmd.stderr(std::process::Stdio::null());
+            }
+            let _ = cmd.spawn();
         }
         return;
     }
