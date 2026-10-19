@@ -378,7 +378,22 @@ fn do_install_fcitx5_addon() -> Result<String, String> {
 
     // Start fcitx5 again so it picks up the addon.
     let _ = std::process::Command::new("fcitx5").args(["-d", "-r"]).spawn();
-    Ok("已安装 fcitx5 插件，并设为默认输入法".to_string())
+    for _ in 0..25 {
+        if process_running("fcitx5") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(120));
+    }
+    if !process_running("fcitx5") {
+        // One retry without -r in case the old instance was already gone.
+        let _ = std::process::Command::new("fcitx5").arg("-d").spawn();
+        std::thread::sleep(std::time::Duration::from_millis(800));
+    }
+    let running = process_running("fcitx5");
+    Ok(format!(
+        "已安装 fcitx5 插件，并设为默认输入法（fcitx5 {}）",
+        if running { "运行中" } else { "未运行，请手动启动" }
+    ))
 }
 
 #[tauri::command]
@@ -937,6 +952,26 @@ pub fn run() {
             Err(e) => {
                 eprintln!("error: {e}");
                 std::process::exit(1);
+            }
+        }
+        return;
+    }
+    if std::env::args().any(|a| a == "--status") {
+        let (data, lib) = fcitx5_user_paths();
+        println!("addon_installed = {}", fcitx5_addon_installed());
+        println!("addon_active    = {}", fcitx5_addon_active());
+        println!("fcitx5_running  = {}", process_running("fcitx5"));
+        println!("addon_conf      = {}", data.join("addon/rustime.conf").display());
+        println!("addon_lib       = {}", lib.join("librustime.so").display());
+        println!("inputmethod     = {}", data.join("inputmethod/rust-ime.conf").display());
+        if let Ok(p) = std::fs::read_to_string(format!(
+            "{}/.config/fcitx5/profile",
+            std::env::var("HOME").unwrap_or_default()
+        )) {
+            for line in p.lines() {
+                if line.contains("DefaultIM") || line.contains("rust-ime") {
+                    println!("profile: {line}");
+                }
             }
         }
         return;
