@@ -10,3 +10,4 @@
 *.swo
 *~
 crates/fcitx5-addon/librustime.so
+artifacts/
