@@ -219,3 +219,14 @@ fcitx5-remote -r                     # 重启 fcitx5
 
 配置保存在 `~/.config/rust-ime/config.json`，用户词库在
 `~/.local/share/rust-ime/udict.txt`，修改即时生效。
+
+## Logo 与系统集成
+
+- 图标由 `scripts/gen-icons.py` 生成（圆角渐变 + 白色 R + 候选点），
+  输出 32/64/128/256/512 多尺寸
+- **系统托盘**：运行时常驻托盘，**左键点击 logo 打开设置中心**，
+  右键菜单为「设置中心 / 退出 rust-ime」
+- **应用菜单**：首次运行写入
+  `~/.local/share/applications/rust-ime.desktop` 与
+  `~/.local/share/icons/hicolor/256x256/apps/rust-ime.png`，
+  桌面应用菜单中显示 logo，点击进入设置

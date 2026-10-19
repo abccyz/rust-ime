@@ -6,8 +6,13 @@ use std::sync::mpsc;
 use ime_engine::EngineEvent;
 use ime_fcitx5::keygrab::{self, GrabbedKey, KeyGrabber};
 use ime_fcitx5::ImeServer;
+use tauri::menu::{Menu, MenuItem};
+use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, State};
 use x11_dl::xlib;
+
+/// App / tray icon (embedded for the tray and the desktop entry).
+const ICON_PNG: &[u8] = include_bytes!("../icons/256x256.png");
 
 /// Whether the IME is in Chinese (pinyin) mode. Toggled by Ctrl+Space.
 static IME_ACTIVE: AtomicBool = AtomicBool::new(true);
@@ -205,11 +210,39 @@ fn clear_user_dict(state: State<'_, AppState>) -> Result<(), String> {
 
 #[tauri::command]
 fn open_settings(app: AppHandle) -> Result<(), String> {
+    show_settings(&app);
+    Ok(())
+}
+
+/// Show and focus the settings window.
+fn show_settings(app: &AppHandle) {
     if let Some(win) = app.get_webview_window("settings") {
         let _ = win.show();
         let _ = win.set_focus();
     }
-    Ok(())
+}
+
+/// Install a user-level desktop entry + icon so the app appears in the
+/// system application menu with its logo.
+fn install_desktop_entry() {
+    let (Ok(home), Ok(exe)) = (
+        std::env::var("HOME"),
+        std::env::current_exe(),
+    ) else {
+        return;
+    };
+
+    let icon_dir = format!("{home}/.local/share/icons/hicolor/256x256/apps");
+    let _ = std::fs::create_dir_all(&icon_dir);
+    let _ = std::fs::write(format!("{icon_dir}/rust-ime.png"), ICON_PNG);
+
+    let app_dir = format!("{home}/.local/share/applications");
+    let _ = std::fs::create_dir_all(&app_dir);
+    let content = format!(
+        "[Desktop Entry]\nType=Application\nName=rust-ime 输入法设置\nComment=纯 Rust 拼音输入法设置中心\nExec=\"{}\" --settings\nIcon=rust-ime\nTerminal=false\nCategories=Utility;Settings;\n",
+        exe.display()
+    );
+    let _ = std::fs::write(format!("{app_dir}/rust-ime.desktop"), content);
 }
 
 fn snapshot(server: &ImeServer) -> PreeditView {
@@ -571,6 +604,7 @@ pub fn run() {
     };
     // Load persisted settings and the user dictionary.
     let settings = load_settings();
+    install_desktop_entry();
 
     // Open X11 display for XIM commit + cursor tracking + key grab.
     let display = DisplayHandle::new();
@@ -591,6 +625,43 @@ pub fn run() {
             // Apply persisted settings to the engine + autostart + UI.
             let state = app.state::<AppState>();
             apply_settings(&handle, &state.server, &settings);
+
+            // System tray: click the logo to open settings, right-click for menu.
+            if let Some(icon) = app
+                .default_window_icon()
+                .cloned()
+                .or_else(|| tauri::image::Image::from_bytes(ICON_PNG).ok())
+            {
+                let settings_item =
+                    MenuItem::with_id(app, "settings", "设置中心", true, None::<&str>)?;
+                let quit_item =
+                    MenuItem::with_id(app, "quit", "退出 rust-ime", true, None::<&str>)?;
+                let menu = Menu::with_items(app, &[&settings_item, &quit_item])?;
+
+                let tray = TrayIconBuilder::with_id("rust-ime-tray")
+                    .icon(icon)
+                    .tooltip("rust-ime 输入法")
+                    .menu(&menu)
+                    .show_menu_on_left_click(false)
+                    .on_menu_event(|app, event| match event.id.as_ref() {
+                        "settings" => show_settings(app),
+                        "quit" => app.exit(0),
+                        _ => {}
+                    })
+                    .on_tray_icon_event(|tray, event| {
+                        if let TrayIconEvent::Click {
+                            button: MouseButton::Left,
+                            button_state: MouseButtonState::Up,
+                            ..
+                        } = event
+                        {
+                            show_settings(tray.app_handle());
+                        }
+                    })
+                    .build(app)?;
+                // Keep the tray alive for the whole process lifetime.
+                std::mem::forget(tray);
+            }
 
             // `rust-ime-app --settings` opens the settings center directly.
             if std::env::args().any(|a| a == "--settings") {
